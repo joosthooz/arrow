@@ -24,12 +24,14 @@
 #include "gandiva/engine.h"
 
 #include <iostream>
+#include <fstream>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
 #include <unordered_set>
 #include <utility>
+#include <iomanip>
 
 #if defined(_MSC_VER)
 #pragma warning(push)
@@ -213,6 +215,12 @@ Status Engine::RemoveUnusedFunctions() {
 // Optimise and compile the module.
 Status Engine::FinalizeModule() {
   ARROW_RETURN_NOT_OK(RemoveUnusedFunctions());
+  std::ofstream logfile;
+  std::ofstream preopt_outfile;
+  std::time_t time = std::time(nullptr);
+  preopt_outfile.open ("LLVMIR_preopt_" + std::to_string(time));
+  preopt_outfile << DumpIR();
+  preopt_outfile.close();
 
   if (optimize_) {
     // misc passes to allow for inlining, vectorization, ..
@@ -245,6 +253,10 @@ Status Engine::FinalizeModule() {
   // do the compilation
   execution_engine_->finalizeObject();
   module_finalized_ = true;
+  std::ofstream postopt_outfile;
+  postopt_outfile.open ("LLVMIR_postopt_" + std::to_string(time));
+  postopt_outfile << DumpIR();
+  postopt_outfile.close();
 
   return Status::OK();
 }
