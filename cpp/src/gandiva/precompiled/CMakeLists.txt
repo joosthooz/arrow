@@ -43,7 +43,8 @@ if(MSVC)
   set(PLATFORM_CLANG_OPTIONS -std=c++14 -fms-compatibility
                              -fms-compatibility-version=${FMS_COMPATIBILITY})
 else()
-  set(PLATFORM_CLANG_OPTIONS -std=c++11)
+  set(PLATFORM_CLANG_OPTIONS -isystem ~/workspaces/TTA/includes/improv) #-std=c++11)
+# -isystem ~/workspaces/TTA/includes/c++/7
 endif()
 
 # Create bitcode for each of the source files.
@@ -61,7 +62,7 @@ foreach(SRC_FILE ${PRECOMPILED_SRCS})
   endif()
   list(
     APPEND PRECOMPILE_COMMAND
-           ${CLANG_EXECUTABLE}
+           tcecc -a ~/workspaces/TTA/tce/tce/scheduler/testbench/ADF/64b.adf
            ${PLATFORM_CLANG_OPTIONS}
            -DGANDIVA_IR
            -DNDEBUG # DCHECK macros not implemented in precompiled code
