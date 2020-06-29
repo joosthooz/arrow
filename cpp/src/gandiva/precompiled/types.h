@@ -17,7 +17,9 @@
 
 #pragma once
 
-#include <cstdint>
+//#include <cstdint>
+#include <stdint.h>
+
 #include "gandiva/gdv_function_stubs.h"
 
 // Use the same names as in arrow data types. Makes it easy to write pre-processor macros.
