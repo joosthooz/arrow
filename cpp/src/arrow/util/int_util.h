@@ -17,10 +17,8 @@
 
 #pragma once
 
-//#include <cstdint>
-//#include <limits>
-#include <stdint.h>
-#include <limits.h>
+#include <cstdint>
+#include <limits>
 #include <type_traits>
 
 #include "arrow/util/visibility.h"
@@ -89,13 +87,13 @@ SignedInt SafeLeftShift(SignedInt u, Shift shift) {
 template <typename Integer>
 bool HasMultiplyOverflow(Integer value, Integer multiplicand) {
   return (multiplicand != 0 &&
-          value > INT_MAX / multiplicand);
+          value > std::numeric_limits<Integer>::max() / multiplicand);
 }
 
 /// Detect addition overflow between *positive* integers
 template <typename Integer>
 bool HasAdditionOverflow(Integer value, Integer addend) {
-  return (value > INT_MAX - addend);
+  return (value > std::numeric_limits<Integer>::max() - addend);
 }
 
 /// Upcast an integer to the largest possible width (currently 64 bits)

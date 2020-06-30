@@ -17,47 +17,22 @@
 
 #include "arrow/util/basic_decimal.h"
 
-//#include <algorithm>
-//#include <array>
-//#include <climits>
-//#include <cstdint>
-#include <limits.h>
-//#include <cstdlib>
-//#include <cstring>
-//#include <iomanip>
-//#include <limits>
-//#include <string>
-#include <string.h>
-#include <stdlib.h>//for abs()
-#include "arrow/util/type_traits.h" //for isooneof
+#include <algorithm>
+#include <array>
+#include <climits>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <iomanip>
+#include <limits>
+#include <string>
 
-//#include "arrow/util/bit_util.h"
+#include "arrow/util/bit_util.h"
 #include "arrow/util/int_util.h"
 #include "arrow/util/logging.h"
 #include "arrow/util/macros.h"
 
-
 namespace arrow {
-
-//JJH: added from bit_util.h:
-static inline int CountLeadingZeros(uint32_t value) {
-  if (value == 0) return 32;
-  return static_cast<int>(__builtin_clz(value));
-}
-static inline int CountLeadingZeros(uint64_t value) {
-  if (value == 0) return 64;
-  return static_cast<int>(__builtin_clzll(value));
-}
-template <typename T, typename = internal::EnableIfIsOneOf<T, int64_t, uint64_t, int32_t,
-                                                           uint32_t, int16_t, uint16_t>>
-static inline T FromLittleEndian(T value) {
-  return value;
-}
-template <typename T, typename = internal::EnableIfIsOneOf<T, int64_t, uint64_t, int32_t,
-                                                           uint32_t, int16_t, uint16_t>>
-static inline T ToLittleEndian(T value) {
-  return value;
-}
 
 using internal::SafeLeftShift;
 using internal::SafeSignedAdd;
@@ -153,19 +128,19 @@ static constexpr BasicDecimal128 kMaxValue =
 
 BasicDecimal128::BasicDecimal128(const uint8_t* bytes)
     : BasicDecimal128(
-          FromLittleEndian(reinterpret_cast<const int64_t*>(bytes)[1]),
-          FromLittleEndian(reinterpret_cast<const uint64_t*>(bytes)[0])) {}
+          BitUtil::FromLittleEndian(reinterpret_cast<const int64_t*>(bytes)[1]),
+          BitUtil::FromLittleEndian(reinterpret_cast<const uint64_t*>(bytes)[0])) {}
 
-uint8array16 BasicDecimal128::ToBytes() const {
-	uint8array16 out{{0}};
-  ToBytes(out.data);
+std::array<uint8_t, 16> BasicDecimal128::ToBytes() const {
+  std::array<uint8_t, 16> out{{0}};
+  ToBytes(out.data());
   return out;
 }
 
 void BasicDecimal128::ToBytes(uint8_t* out) const {
   DCHECK_NE(out, nullptr);
-  reinterpret_cast<uint64_t*>(out)[0] = ToLittleEndian(low_bits_);
-  reinterpret_cast<int64_t*>(out)[1] = ToLittleEndian(high_bits_);
+  reinterpret_cast<uint64_t*>(out)[0] = BitUtil::ToLittleEndian(low_bits_);
+  reinterpret_cast<int64_t*>(out)[1] = BitUtil::ToLittleEndian(high_bits_);
 }
 
 BasicDecimal128& BasicDecimal128::Negate() {
@@ -322,7 +297,7 @@ static int64_t FillInArray(const BasicDecimal128& value, uint32_t* array,
   }
 
   if (high != 0) {
-    if (high > UINT_MAX) {
+    if (high > std::numeric_limits<uint32_t>::max()) {
       array[0] = static_cast<uint32_t>(high >> 32);
       array[1] = static_cast<uint32_t>(high);
       array[2] = static_cast<uint32_t>(low >> 32);
@@ -336,7 +311,7 @@ static int64_t FillInArray(const BasicDecimal128& value, uint32_t* array,
     return 3;
   }
 
-  if (low >= UINT_MAX) {
+  if (low >= std::numeric_limits<uint32_t>::max()) {
     array[0] = static_cast<uint32_t>(low >> 32);
     array[1] = static_cast<uint32_t>(low);
     return 2;
@@ -486,14 +461,14 @@ DecimalStatus BasicDecimal128::Divide(const BasicDecimal128& divisor,
   // Normalize by shifting both by a multiple of 2 so that
   // the digit guessing is better. The requirement is that
   // divisor_array[0] is greater than 2**31.
-  int64_t normalize_bits = CountLeadingZeros(divisor_array[0]);
+  int64_t normalize_bits = BitUtil::CountLeadingZeros(divisor_array[0]);
   ShiftArrayLeft(divisor_array, divisor_length, normalize_bits);
   ShiftArrayLeft(dividend_array, dividend_length, normalize_bits);
 
   // compute each digit in the result
   for (int64_t j = 0; j < result_length; ++j) {
     // Guess the next digit. At worst it is two too large
-    uint32_t guess = UINT_MAX;
+    uint32_t guess = std::numeric_limits<uint32_t>::max();
     const auto high_dividend =
         static_cast<uint64_t>(dividend_array[j]) << 32 | dividend_array[j + 1];
     if (dividend_array[j] != divisor_array[0]) {
@@ -651,7 +626,7 @@ DecimalStatus BasicDecimal128::Rescale(int32_t original_scale, int32_t new_scale
   DCHECK_NE(original_scale, new_scale);
 
   const int32_t delta_scale = new_scale - original_scale;
-  const int32_t abs_delta_scale = abs(delta_scale);
+  const int32_t abs_delta_scale = std::abs(delta_scale);
 
   DCHECK_GE(abs_delta_scale, 1);
   DCHECK_LE(abs_delta_scale, 38);
@@ -724,9 +699,9 @@ int32_t BasicDecimal128::CountLeadingBinaryZeros() const {
   DCHECK_GE(*this, BasicDecimal128(0));
 
   if (high_bits_ == 0) {
-    return CountLeadingZeros(low_bits_) + 64;
+    return BitUtil::CountLeadingZeros(low_bits_) + 64;
   } else {
-    return CountLeadingZeros(static_cast<uint64_t>(high_bits_));
+    return BitUtil::CountLeadingZeros(static_cast<uint64_t>(high_bits_));
   }
 }
 

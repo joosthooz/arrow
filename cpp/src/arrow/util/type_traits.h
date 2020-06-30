@@ -36,10 +36,9 @@ struct IsOneOf<T, U, Args...> {
 template <typename T, typename... Args>
 using EnableIfIsOneOf = typename std::enable_if<IsOneOf<T, Args...>::value, T>::type;
 
-/// \brief is_null_pointer from C++17 -> JJH: added here:
-typedef decltype(nullptr)	nullptr_t;
+/// \brief is_null_pointer from C++17
 template <typename T>
-struct is_null_pointer : std::is_same<nullptr_t, typename std::remove_cv<T>::type> {
+struct is_null_pointer : std::is_same<std::nullptr_t, typename std::remove_cv<T>::type> {
 };
 
 }  // namespace internal
