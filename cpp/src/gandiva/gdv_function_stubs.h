@@ -17,8 +17,7 @@
 
 #pragma once
 
-//#include <cstdint>
-#include <stdint.h>
+#include <cstdint>
 
 /// Stub functions that can be accessed from LLVM.
 extern "C" {

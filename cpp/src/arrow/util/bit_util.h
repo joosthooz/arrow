@@ -52,22 +52,19 @@
 #define ARROW_BYTE_SWAP32 __builtin_bswap32
 #endif
 
-//#include <algorithm>
-//#include <array>
-//#include <bitset>
-//#include <cassert>
-//#include <cmath>
-//#include <cstdint>
-//#include <cstring>
-//#include <limits>
-//#include <memory>
-//#include <string>
+#include <algorithm>
+#include <array>
+#include <bitset>
+#include <cassert>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <limits>
+#include <memory>
+#include <string>
 #include <type_traits>
-//#include <utility>
-//#include <vector>
-#include <stdint.h>
-#include <string.h>
-#include <limits.h>
+#include <utility>
+#include <vector>
 
 #include "arrow/buffer.h"
 #include "arrow/result.h"
