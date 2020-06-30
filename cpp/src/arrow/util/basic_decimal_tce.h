@@ -26,7 +26,7 @@
 #include <string.h>
 #include <type_traits>
 
-#include "arrow/util/macros.h"
+#include "arrow/util/macros_tce.h"
 //#include "arrow/util/type_traits.h"
 #include "arrow/util/visibility.h"
 
