@@ -85,11 +85,11 @@ static bool llvm_init = false;
 void Engine::InitOnce() {
   DCHECK_EQ(llvm_init, false);
 
-  llvm::LLVMInitializeTCETarget();
+  llvm::InitializeAllTargets();
 //  llvm::InitializeNativeTarget();
-//  llvm::InitializeNativeTargetAsmPrinter();
-//  llvm::InitializeNativeTargetAsmParser();
-//  llvm::InitializeNativeTargetDisassembler();
+  llvm::InitializeNativeTargetAsmPrinter();
+  llvm::InitializeNativeTargetAsmParser();
+  llvm::InitializeNativeTargetDisassembler();
   llvm::sys::DynamicLibrary::LoadLibraryPermanently(nullptr);
 
   llvm_init = true;
