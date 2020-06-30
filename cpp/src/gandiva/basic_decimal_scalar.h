@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include <cstdint>
+//#include <cstdint>
+#include <stdint.h>
 #include "arrow/util/basic_decimal.h"
 
 namespace gandiva {

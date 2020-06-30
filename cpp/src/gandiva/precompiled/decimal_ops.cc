@@ -19,9 +19,11 @@
 
 #include "gandiva/precompiled/decimal_ops.h"
 
-#include <algorithm>
-#include <cmath>
-#include <limits>
+//#include <algorithm>
+//#include <cmath>
+#include <math.h>
+//#include <limits>
+#include <limits.h>
 
 #include "gandiva/decimal_type_util.h"
 #include "gandiva/decimal_xlarge.h"
