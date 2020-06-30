@@ -20,14 +20,14 @@ project(gandiva)
 set(PRECOMPILED_SRCS
     arithmetic_ops.cc
     bitmap.cc
-    decimal_ops.cc
-    decimal_wrapper.cc
-    extended_math_ops.cc
-    hash.cc
-    print.cc
+#    decimal_ops.cc
+#    decimal_wrapper.cc
+#    extended_math_ops.cc
+#    hash.cc
+#    print.cc
     string_ops.cc
-    time.cc
-    timestamp_arithmetic.cc
+#    time.cc
+#    timestamp_arithmetic.cc
     ../../arrow/util/basic_decimal.cc)
 
 if(MSVC)
@@ -83,7 +83,7 @@ endforeach()
 
 # link all of the bitcode files into a single bitcode file.
 add_custom_command(OUTPUT ${GANDIVA_PRECOMPILED_BC_PATH}
-                   COMMAND ${LLVM_LINK_EXECUTABLE} -o ${GANDIVA_PRECOMPILED_BC_PATH}
+                   COMMAND /data/tools/LLVM10_tce64/bin/llvm-link -o ${GANDIVA_PRECOMPILED_BC_PATH}
                            ${BC_FILES}
                    DEPENDS ${BC_FILES})
 
