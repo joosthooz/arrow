@@ -19,7 +19,7 @@
 
 #pragma once
 
-//#include <algorithm>
+#include <algorithm>
 #include <memory>
 
 #include "gandiva/arrow.h"

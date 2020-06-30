@@ -17,10 +17,8 @@
 
 #pragma once
 
-//#include <cstdint>
-//#include <string>
-#include <stdint.h>
-#include <string.h>
+#include <cstdint>
+#include <string>
 #include "gandiva/basic_decimal_scalar.h"
 
 namespace gandiva {
