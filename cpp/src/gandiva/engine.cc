@@ -85,10 +85,11 @@ static bool llvm_init = false;
 void Engine::InitOnce() {
   DCHECK_EQ(llvm_init, false);
 
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-  llvm::InitializeNativeTargetAsmParser();
-  llvm::InitializeNativeTargetDisassembler();
+  llvm::LLVMInitializeTCETarget();
+//  llvm::InitializeNativeTarget();
+//  llvm::InitializeNativeTargetAsmPrinter();
+//  llvm::InitializeNativeTargetAsmParser();
+//  llvm::InitializeNativeTargetDisassembler();
   llvm::sys::DynamicLibrary::LoadLibraryPermanently(nullptr);
 
   llvm_init = true;
@@ -134,7 +135,8 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
   std::string builder_error;
   std::unique_ptr<llvm::ExecutionEngine> exec_engine{
       llvm::EngineBuilder(std::move(module))
-          .setMCPU(llvm::sys::getHostCPUName())
+//          .setMCPU(llvm::sys::getHostCPUName()) //JJH: Maybe it will select tce by default because of the precompiled IR triple
+//          .selectTarget("tcele64-tut-llvm")
           .setEngineKind(llvm::EngineKind::JIT)
           .setOptLevel(opt_level)
           .setErrorStr(&builder_error)
