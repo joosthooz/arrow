@@ -83,7 +83,7 @@ endforeach()
 
 # link all of the bitcode files into a single bitcode file.
 add_custom_command(OUTPUT ${GANDIVA_PRECOMPILED_BC_PATH}
-                   COMMAND /data/tools/LLVM10_tce64/bin/llvm-link -o ${GANDIVA_PRECOMPILED_BC_PATH}
+                   COMMAND /data/tools/LLVM8_tce64/bin/llvm-link -o ${GANDIVA_PRECOMPILED_BC_PATH}
                            ${BC_FILES}
                    DEPENDS ${BC_FILES})
 
