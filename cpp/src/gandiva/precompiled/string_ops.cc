@@ -127,7 +127,7 @@ void set_error_for_invalid_utf(int64_t execution_context, char val) {
   char const* fmt = "unexpected byte \\%02hhx encountered while decoding utf8 string";
   int size = static_cast<int>(strlen(fmt)) + 64;
   char* error = reinterpret_cast<char*>(malloc(size));
-  snprintf(error, size, fmt, (unsigned char)val);
+  sprintf(error, fmt, (unsigned char)val);
   gdv_fn_context_set_error_msg(execution_context, error);
   free(error);
 }
