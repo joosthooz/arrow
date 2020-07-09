@@ -132,6 +132,13 @@ add_arrow_lib(gandiva
 
 foreach(LIB_TARGET ${GANDIVA_LIBRARIES})
   target_compile_definitions(${LIB_TARGET} PRIVATE GANDIVA_EXPORTING)
+  target_include_directories(${LIB_TARGET} PRIVATE /home/jjhoozemans/workspaces/TTA/tce/tce/src/applibs/LLVMBackend
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/applibs/LLVMBackend/plugin
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/tools
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/applibs/osal
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/base/osal
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/base/Graph
+)
 endforeach()
 
 if(ARROW_BUILD_STATIC AND WIN32)

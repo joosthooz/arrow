@@ -15,6 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "engine.h"
+
+#include <arrow/status.h>
+#include <bits/types/time_t.h>
+#include <llvm/ADT/StringRef.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/Function.h>
+#include <llvm/IR/GlobalValue.h>
+#include <llvm/IR/Module.h>
+#include <llvm/Pass.h>
+#include <llvm/Support/CodeGen.h>
+#include <llvm/Support/Error.h>
+#include <llvm/Support/ErrorOr.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Target/TargetMachine.h>
+#include <stddef.h>
+#include <algorithm>
+#include <ctime>
+#include <system_error>
+#include <unordered_map>
+
+#include "arrow.h"
+
 // TODO(wesm): LLVM 7 produces pesky C4244 that disable pragmas around the LLVM
 // includes seem to not fix as with LLVM 6
 #if defined(_MSC_VER)
@@ -64,6 +87,16 @@
 #include <llvm/Transforms/Utils.h>
 #include <llvm/Transforms/Vectorize.h>
 
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/Target/TargetOptions.h>
+#include <llvm/Support/TargetRegistry.h>
+
+#include "TCETargetMachine.hh"
+#include "TCEStubTargetMachine.hh"
+#include "TCETargetMachinePlugin.hh"
+#include "Machine.hh"
+#include "LLVMBackend.hh"
+
 #if defined(_MSC_VER)
 #pragma warning(pop)
 #endif
@@ -74,10 +107,18 @@
 
 #include "arrow/util/make_unique.h"
 
+// just to be able to manually register tce target if needed.
+extern "C" void LLVMInitializeTCETarget();
+extern "C" void LLVMInitializeTCETargetInfo();
+
+using namespace llvm;
+
 namespace gandiva {
 
 extern const unsigned char kPrecompiledBitcode[];
 extern const size_t kPrecompiledBitcodeSize;
+
+LLVMBackend TCEBackend(true, "/tmp/tcetmpding/");
 
 std::once_flag llvm_init_once_flag;
 static bool llvm_init = false;
@@ -85,22 +126,26 @@ static bool llvm_init = false;
 void Engine::InitOnce() {
   DCHECK_EQ(llvm_init, false);
 
-  llvm::InitializeAllTargets();
-//  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-  llvm::InitializeNativeTargetAsmParser();
-  llvm::InitializeNativeTargetDisassembler();
-  llvm::sys::DynamicLibrary::LoadLibraryPermanently(nullptr);
+  // Register target to llvm for using lookupTarget
+  LLVMInitializeTCETargetInfo();
+  LLVMInitializeTCETarget();
+
+  //  InitializeAllTargets();
+  InitializeNativeTarget();
+  InitializeNativeTargetAsmPrinter();
+  InitializeNativeTargetAsmParser();
+  InitializeNativeTargetDisassembler();
+  sys::DynamicLibrary::LoadLibraryPermanently(nullptr);
 
   llvm_init = true;
 }
 
 Engine::Engine(const std::shared_ptr<Configuration>& conf,
-               std::unique_ptr<llvm::LLVMContext> ctx,
-               std::unique_ptr<llvm::ExecutionEngine> engine, llvm::Module* module)
+               std::unique_ptr<LLVMContext> ctx,
+               std::unique_ptr<ExecutionEngine> engine, Module* module)
     : context_(std::move(ctx)),
       execution_engine_(std::move(engine)),
-      ir_builder_(arrow::internal::make_unique<llvm::IRBuilder<>>(*context_)),
+      ir_builder_(arrow::internal::make_unique<IRBuilder<>>(*context_)),
       module_(module),
       types_(*context_),
       optimize_(conf->optimize()) {}
@@ -110,7 +155,7 @@ Status Engine::Init() {
   AddGlobalMappings();
 
   ARROW_RETURN_NOT_OK(LoadPreCompiledIR());
-  ARROW_RETURN_NOT_OK(DecimalIR::AddFunctions(this));
+//  ARROW_RETURN_NOT_OK(DecimalIR::AddFunctions(this)); //JJH: this causes a crash, disable for now but revisit later.
 
   return Status::OK();
 }
@@ -120,30 +165,72 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
                     std::unique_ptr<Engine>* out) {
   std::call_once(llvm_init_once_flag, InitOnce);
 
-  auto ctx = arrow::internal::make_unique<llvm::LLVMContext>();
-  auto module = arrow::internal::make_unique<llvm::Module>("codegen", *ctx);
+  auto ctx = arrow::internal::make_unique<LLVMContext>();
+  auto module = arrow::internal::make_unique<Module>("codegen", *ctx);
 
   // Capture before moving, ExceutionEngine does not allow retrieving the
   // original Module.
   auto module_ptr = module.get();
 
+  std::string targetStr ="tcele64";
+  std::string errorStr;
+  std::string featureString ="";
+
+  std::ofstream LLVMIR_EngineMake_outfile;
+  std::time_t time = std::time(nullptr);
+  LLVMIR_EngineMake_outfile.open ("LLVMIR_EngineMake_" + std::to_string(time));
+  LLVMIR_EngineMake_outfile << "Engine:Make Waiting a short while...\n";
+  for (int j = 0; j < 2; j++)
+  for (volatile int i = 0; i < 1999999999; i++) ; //Give user some time to attach a debugger
+  LLVMIR_EngineMake_outfile << "Engine:Make Continuing... after " << std::time(nullptr) - time;
+  LLVMIR_EngineMake_outfile.close();
+
+
+  module_ptr->setTargetTriple(targetStr); //JJH: This doesn't work (Failed to make LLVM module due to Could not instantiate ExecutionEngine: No available targets are compatible with triple "tcele64-tut-llvm")
+  // get registered target machine and set plugin.
+      const Target* tceTarget =
+          TargetRegistry::lookupTarget(targetStr, errorStr);
+
+      if (!tceTarget) {
+          std::cerr << "lookupTarget error: " << errorStr << "\n";
+      }
+/*
+      TTAMachine::Machine *target = TTAMachine::Machine::loadFromADF("/home/jjhoozemans/workspaces/TTA/tce/tce/scheduler/testbench/ADF/64b.adf");
+      std::unique_ptr<TCETargetMachinePlugin> plugin(TCEBackend.createPlugin(*target));
+
+      std::string cpuStr = "tce";
+      TargetOptions Options;
+      TCETargetMachine* targetMachine =
+              static_cast<TCETargetMachine*>(
+                  tceTarget->createTargetMachine(
+                      targetStr, cpuStr, featureString, Options,
+                      Reloc::Model::Static));
+	  if (!targetMachine) {
+		  std::cerr << "Could not create tce target machine" << "\n";
+	  }
+
+	  // This hack must be cleaned up before adding TCE target to llvm upstream
+	  // these are needed by TCETargetMachine::addInstSelector passes
+	  targetMachine->setTargetMachinePlugin(*plugin);
+	  targetMachine->setTTAMach(target);
+//	  targetMachine->setEmulationModule(emulationModule);
+*/
   auto opt_level =
-      conf->optimize() ? llvm::CodeGenOpt::Aggressive : llvm::CodeGenOpt::None;
+      conf->optimize() ? CodeGenOpt::Aggressive : CodeGenOpt::None;
   // Note that the lifetime of the error string is not captured by the
   // ExecutionEngine but only for the lifetime of the builder. Found by
   // inspecting LLVM sources.
   std::string builder_error;
-  std::unique_ptr<llvm::ExecutionEngine> exec_engine{
-      llvm::EngineBuilder(std::move(module))
-//          .setMCPU(llvm::sys::getHostCPUName()) //JJH: Maybe it will select tce by default because of the precompiled IR triple
-//          .selectTarget("tcele64-tut-llvm")
-          .setEngineKind(llvm::EngineKind::JIT)
+  std::unique_ptr<ExecutionEngine> exec_engine{
+      EngineBuilder(std::move(module))
+//          .setMCPU(sys::getHostCPUName())
+          .setEngineKind(EngineKind::JIT)
           .setOptLevel(opt_level)
           .setErrorStr(&builder_error)
           .create()};
 
   if (exec_engine == nullptr) {
-    return Status::CodeGenError("Could not instantiate llvm::ExecutionEngine: ",
+    return Status::CodeGenError("Could not instantiate ExecutionEngine: ",
                                 builder_error);
   }
 
@@ -156,35 +243,35 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
 
 // Handling for pre-compiled IR libraries.
 Status Engine::LoadPreCompiledIR() {
-  auto bitcode = llvm::StringRef(reinterpret_cast<const char*>(kPrecompiledBitcode),
+  auto bitcode = StringRef(reinterpret_cast<const char*>(kPrecompiledBitcode),
                                  kPrecompiledBitcodeSize);
 
   /// Read from file into memory buffer.
-  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> buffer_or_error =
-      llvm::MemoryBuffer::getMemBuffer(bitcode, "precompiled", false);
+  ErrorOr<std::unique_ptr<MemoryBuffer>> buffer_or_error =
+      MemoryBuffer::getMemBuffer(bitcode, "precompiled", false);
 
   ARROW_RETURN_IF(!buffer_or_error,
                   Status::CodeGenError("Could not load module from IR: ",
                                        buffer_or_error.getError().message()));
 
-  std::unique_ptr<llvm::MemoryBuffer> buffer = move(buffer_or_error.get());
+  std::unique_ptr<MemoryBuffer> buffer = move(buffer_or_error.get());
 
   /// Parse the IR module.
-  llvm::Expected<std::unique_ptr<llvm::Module>> module_or_error =
-      llvm::getOwningLazyBitcodeModule(move(buffer), *context());
+  Expected<std::unique_ptr<Module>> module_or_error =
+      getOwningLazyBitcodeModule(move(buffer), *context());
   if (!module_or_error) {
-    // NOTE: llvm::handleAllErrors() fails linking with RTTI-disabled LLVM builds
+    // NOTE: handleAllErrors() fails linking with RTTI-disabled LLVM builds
     // (ARROW-5148)
     std::string str;
-    llvm::raw_string_ostream stream(str);
+    raw_string_ostream stream(str);
     stream << module_or_error.takeError();
     return Status::CodeGenError(stream.str());
   }
-  std::unique_ptr<llvm::Module> ir_module = move(module_or_error.get());
+  std::unique_ptr<Module> ir_module = move(module_or_error.get());
 
-  ARROW_RETURN_IF(llvm::verifyModule(*ir_module, &llvm::errs()),
+  ARROW_RETURN_IF(verifyModule(*ir_module, &errs()),
                   Status::CodeGenError("verify of IR Module failed"));
-  ARROW_RETURN_IF(llvm::Linker::linkModules(*module_, move(ir_module)),
+  ARROW_RETURN_IF(Linker::linkModules(*module_, move(ir_module)),
                   Status::CodeGenError("failed to link IR Modules"));
 
   return Status::OK();
@@ -199,17 +286,17 @@ Status Engine::LoadPreCompiledIR() {
 // a pass for dead code elimination.
 Status Engine::RemoveUnusedFunctions() {
   // Setup an optimiser pipeline
-  std::unique_ptr<llvm::legacy::PassManager> pass_manager(
-      new llvm::legacy::PassManager());
+  std::unique_ptr<legacy::PassManager> pass_manager(
+      new legacy::PassManager());
 
   std::unordered_set<std::string> used_functions;
   used_functions.insert(functions_to_compile_.begin(), functions_to_compile_.end());
 
   pass_manager->add(
-      llvm::createInternalizePass([&used_functions](const llvm::GlobalValue& func) {
+      createInternalizePass([&used_functions](const GlobalValue& func) {
         return (used_functions.find(func.getName().str()) != used_functions.end());
       }));
-  pass_manager->add(llvm::createGlobalDCEPass());
+  pass_manager->add(createGlobalDCEPass());
   pass_manager->run(*module_);
   return Status::OK();
 }
@@ -217,39 +304,48 @@ Status Engine::RemoveUnusedFunctions() {
 // Optimise and compile the module.
 Status Engine::FinalizeModule() {
   ARROW_RETURN_NOT_OK(RemoveUnusedFunctions());
-  std::ofstream logfile;
   std::ofstream preopt_outfile;
   std::time_t time = std::time(nullptr);
-  preopt_outfile.open ("LLVMIR_preopt_" + std::to_string(time));
+  std::string preopt_filename = "LLVMIR_preopt_" + std::to_string(time);
+  preopt_outfile.open (preopt_filename);
   preopt_outfile << DumpIR();
   preopt_outfile.close();
+  preopt_outfile.flush();
+
+
+  TTAMachine::Machine *target = TTAMachine::Machine::loadFromADF("/home/jjhoozemans/workspaces/TTA/tce/tce/scheduler/testbench/ADF/64b.adf");
+  TCEBackend.compile(
+      preopt_filename, "",
+      *target, 3, true,
+      NULL);
+
 
   if (optimize_) {
     // misc passes to allow for inlining, vectorization, ..
-    std::unique_ptr<llvm::legacy::PassManager> pass_manager(
-        new llvm::legacy::PassManager());
+    std::unique_ptr<legacy::PassManager> pass_manager(
+        new legacy::PassManager());
 
-    llvm::TargetIRAnalysis target_analysis =
+    TargetIRAnalysis target_analysis =
         execution_engine_->getTargetMachine()->getTargetIRAnalysis();
-    pass_manager->add(llvm::createTargetTransformInfoWrapperPass(target_analysis));
-    pass_manager->add(llvm::createFunctionInliningPass());
-    pass_manager->add(llvm::createInstructionCombiningPass());
-    pass_manager->add(llvm::createPromoteMemoryToRegisterPass());
-    pass_manager->add(llvm::createGVNPass());
-    pass_manager->add(llvm::createNewGVNPass());
-    pass_manager->add(llvm::createCFGSimplificationPass());
-    pass_manager->add(llvm::createLoopVectorizePass());
-    pass_manager->add(llvm::createSLPVectorizerPass());
-    pass_manager->add(llvm::createGlobalOptimizerPass());
+    pass_manager->add(createTargetTransformInfoWrapperPass(target_analysis));
+    pass_manager->add(createFunctionInliningPass());
+    pass_manager->add(createInstructionCombiningPass());
+    pass_manager->add(createPromoteMemoryToRegisterPass());
+    pass_manager->add(createGVNPass());
+    pass_manager->add(createNewGVNPass());
+    pass_manager->add(createCFGSimplificationPass());
+    pass_manager->add(createLoopVectorizePass());
+    pass_manager->add(createSLPVectorizerPass());
+    pass_manager->add(createGlobalOptimizerPass());
 
     // run the optimiser
-    llvm::PassManagerBuilder pass_builder;
+    PassManagerBuilder pass_builder;
     pass_builder.OptLevel = 3;
     pass_builder.populateModulePassManager(*pass_manager);
     pass_manager->run(*module_);
   }
 
-  ARROW_RETURN_IF(llvm::verifyModule(*module_, &llvm::errs()),
+  ARROW_RETURN_IF(verifyModule(*module_, &errs()),
                   Status::CodeGenError("Module verification failed after optimizer"));
 
   // do the compilation
@@ -259,22 +355,24 @@ Status Engine::FinalizeModule() {
   postopt_outfile.open ("LLVMIR_postopt_" + std::to_string(time));
   postopt_outfile << DumpIR();
   postopt_outfile.close();
+  postopt_outfile.flush();
+
 
   return Status::OK();
 }
 
-void* Engine::CompiledFunction(llvm::Function* irFunction) {
+void* Engine::CompiledFunction(Function* irFunction) {
   DCHECK(module_finalized_);
   return execution_engine_->getPointerToFunction(irFunction);
 }
 
-void Engine::AddGlobalMappingForFunc(const std::string& name, llvm::Type* ret_type,
-                                     const std::vector<llvm::Type*>& args,
+void Engine::AddGlobalMappingForFunc(const std::string& name, Type* ret_type,
+                                     const std::vector<Type*>& args,
                                      void* function_ptr) {
   constexpr bool is_var_arg = false;
-  auto prototype = llvm::FunctionType::get(ret_type, args, is_var_arg);
-  constexpr auto linkage = llvm::GlobalValue::ExternalLinkage;
-  auto fn = llvm::Function::Create(prototype, linkage, name, module());
+  auto prototype = FunctionType::get(ret_type, args, is_var_arg);
+  constexpr auto linkage = GlobalValue::ExternalLinkage;
+  auto fn = Function::Create(prototype, linkage, name, module());
   execution_engine_->addGlobalMapping(fn, function_ptr);
 }
 
@@ -282,7 +380,7 @@ void Engine::AddGlobalMappings() { ExportedFuncsRegistry::AddMappings(this); }
 
 std::string Engine::DumpIR() {
   std::string ir;
-  llvm::raw_string_ostream stream(ir);
+  raw_string_ostream stream(ir);
   module_->print(stream, nullptr);
   return ir;
 }
