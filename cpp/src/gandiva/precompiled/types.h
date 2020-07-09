@@ -20,7 +20,7 @@
 //#include <cstdint>
 #include <stdint.h>
 
-#include "gandiva/gdv_function_stubs.h"
+#include "gandiva/gdv_function_stubs_tce.h"
 
 // Use the same names as in arrow data types. Makes it easy to write pre-processor macros.
 using gdv_boolean = bool;
