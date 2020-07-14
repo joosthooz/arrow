@@ -96,6 +96,11 @@
 #include "TCETargetMachinePlugin.hh"
 #include "Machine.hh"
 #include "LLVMBackend.hh"
+#include "LLVMTCECmdLineOptions.hh"
+#include "InterPassData.hh"
+
+//For writeTPEF
+#include "Program.hh"
 
 #if defined(_MSC_VER)
 #pragma warning(pop)
@@ -110,15 +115,19 @@
 // just to be able to manually register tce target if needed.
 extern "C" void LLVMInitializeTCETarget();
 extern "C" void LLVMInitializeTCETargetInfo();
+extern "C" void LLVMInitializeTCEStubTarget();
+
 
 using namespace llvm;
+
+LLVMBackend *TCEBackend;
+TCETargetMachine* targetMachine;
+TTAMachine::Machine *target;
 
 namespace gandiva {
 
 extern const unsigned char kPrecompiledBitcode[];
 extern const size_t kPrecompiledBitcodeSize;
-
-LLVMBackend TCEBackend(true, "/tmp/tcetmpding/");
 
 std::once_flag llvm_init_once_flag;
 static bool llvm_init = false;
@@ -129,6 +138,7 @@ void Engine::InitOnce() {
   // Register target to llvm for using lookupTarget
   LLVMInitializeTCETargetInfo();
   LLVMInitializeTCETarget();
+  //LLVMInitializeTCEStubTarget(); //JJH: seems to be needed to set ST which is return for getSubtarget(), but it causes an earlier crash
 
   //  InitializeAllTargets();
   InitializeNativeTarget();
@@ -194,13 +204,17 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
       if (!tceTarget) {
           std::cerr << "lookupTarget error: " << errorStr << "\n";
       }
-/*
-      TTAMachine::Machine *target = TTAMachine::Machine::loadFromADF("/home/jjhoozemans/workspaces/TTA/tce/tce/scheduler/testbench/ADF/64b.adf");
-      std::unique_ptr<TCETargetMachinePlugin> plugin(TCEBackend.createPlugin(*target));
+
+      LLVMTCECmdLineOptions* options = new LLVMTCECmdLineOptions;
+      Application::setCmdLineOptions(options); //must call before creating LLVMBackend, as that will fetch the options from Application::
+      LLVMBackend *ding = new LLVMBackend(false, "/tmp/tcetmpding/");
+      target = TTAMachine::Machine::loadFromADF("/home/jjhoozemans/workspaces/TTA/tce/tce/scheduler/testbench/ADF/64b.adf");
+      std::unique_ptr<TCETargetMachinePlugin> plugin(ding->createPlugin(*target));
+      TCEBackend = ding;
 
       std::string cpuStr = "tce";
       TargetOptions Options;
-      TCETargetMachine* targetMachine =
+      targetMachine =
               static_cast<TCETargetMachine*>(
                   tceTarget->createTargetMachine(
                       targetStr, cpuStr, featureString, Options,
@@ -214,7 +228,7 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
 	  targetMachine->setTargetMachinePlugin(*plugin);
 	  targetMachine->setTTAMach(target);
 //	  targetMachine->setEmulationModule(emulationModule);
-*/
+
   auto opt_level =
       conf->optimize() ? CodeGenOpt::Aggressive : CodeGenOpt::None;
   // Note that the lifetime of the error string is not captured by the
@@ -311,14 +325,19 @@ Status Engine::FinalizeModule() {
   preopt_outfile << DumpIR();
   preopt_outfile.close();
   preopt_outfile.flush();
+  std::string cmdString = ""
+		  "LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/data/tools/LLVM8_tce64/lib "
+		  "PATH=/data/tools/LLVM8_tce64/bin:/data/tools/tce64_LLVM8/bin:/data/tools/ghdl/install/bin:$PATH "
+		  "/data/tools/LLVM8_tce64/bin/llvm-as " + preopt_filename;
+  system(cmdString.c_str());
+  InterPassData *ipd = new InterPassData;
 
-
-  TTAMachine::Machine *target = TTAMachine::Machine::loadFromADF("/home/jjhoozemans/workspaces/TTA/tce/tce/scheduler/testbench/ADF/64b.adf");
-  TCEBackend.compile(
-      preopt_filename, "",
+  TTAProgram::Program* prog = TCEBackend->compile(
+      "/home/jjhoozemans/workspaces/BD_overlay/spark/spark-with-gandiva/" + preopt_filename + ".bc", "",
       *target, 3, true,
-      NULL);
+      ipd);
 
+  TTAProgram::Program::writeToTPEF(*prog, preopt_filename + ".tpef");
 
   if (optimize_) {
     // misc passes to allow for inlining, vectorization, ..
