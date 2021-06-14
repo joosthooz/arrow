@@ -98,6 +98,8 @@
 #include "LLVMBackend.hh"
 #include "LLVMTCECmdLineOptions.hh"
 #include "InterPassData.hh"
+#include "llvm/IR/PassManager.h"
+#include "llvm/Support/CommandLine.h"
 
 //For writeTPEF
 #include "Program.hh"
@@ -116,7 +118,6 @@
 extern "C" void LLVMInitializeTCETarget();
 extern "C" void LLVMInitializeTCETargetInfo();
 extern "C" void LLVMInitializeTCEStubTarget();
-
 
 using namespace llvm;
 
@@ -182,6 +183,10 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
   // original Module.
   auto module_ptr = module.get();
 
+  //prevent optimizing out the generated code because it is currently not called yet
+  const char *argv[] = {"-internalize-public-api-list=_start,_pthread_start,_dthread_start,main"};
+  cl::ParseCommandLineOptions(1, argv);
+
   std::string targetStr ="tcele64";
   std::string errorStr;
   std::string featureString ="";
@@ -196,7 +201,8 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
   LLVMIR_EngineMake_outfile.close();
 
 
-  module_ptr->setTargetTriple(targetStr); //JJH: This doesn't work (Failed to make LLVM module due to Could not instantiate ExecutionEngine: No available targets are compatible with triple "tcele64-tut-llvm")
+//  module_ptr->setDataLayout("e-p:64:64:64-i1:8:8-i8:8:64-i16:16:64-i32:32:64-i64:64:64-f32:32:64-f64:64:64-v64:64:64-v128:128:128-v256:256:256-v512:512:512-v1024:1024:1024-a0:0:64-n64");
+  module_ptr->setTargetTriple(targetStr);
   // get registered target machine and set plugin.
       const Target* tceTarget =
           TargetRegistry::lookupTarget(targetStr, errorStr);
@@ -208,7 +214,7 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
       LLVMTCECmdLineOptions* options = new LLVMTCECmdLineOptions;
       Application::setCmdLineOptions(options); //must call before creating LLVMBackend, as that will fetch the options from Application::
       LLVMBackend *ding = new LLVMBackend(false, "/tmp/tcetmpding/");
-      target = TTAMachine::Machine::loadFromADF("/home/jjhoozemans/workspaces/TTA/tce/tce/scheduler/testbench/ADF/64b.adf");
+      target = TTAMachine::Machine::loadFromADF("/home/jjhoozemans/workspaces/TTA/64b_joost.adf");
       std::unique_ptr<TCETargetMachinePlugin> plugin(ding->createPlugin(*target));
       TCEBackend = ding;
 

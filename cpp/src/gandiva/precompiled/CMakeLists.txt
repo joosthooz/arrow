@@ -62,7 +62,7 @@ foreach(SRC_FILE ${PRECOMPILED_SRCS})
   endif()
   list(
     APPEND PRECOMPILE_COMMAND
-           tcecc -a ~/workspaces/TTA/tce/tce/scheduler/testbench/ADF/64b.adf #clang --target=tcele64 -I/data/tools/tce64_LLVM8/tcele64-llvm/include/ 
+           tcecc -a ~/workspaces/TTA/64b_joost.adf #clang --target=tcele64 -I/data/tools/tce64_LLVM8/tcele64-llvm/include/ 
            ${PLATFORM_CLANG_OPTIONS}
            -DGANDIVA_IR
            -DNDEBUG # DCHECK macros not implemented in precompiled code
