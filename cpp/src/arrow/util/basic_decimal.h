@@ -17,15 +17,23 @@
 
 #pragma once
 
-#include <array>
-#include <cstdint>
-#include <limits>
-#include <string>
+//#include <array>
+//#include <cstdint>
+#include <stdint.h>
+//#include <limits>
+#include <limits.h>
+//#include <string>
+#include <string.h>
 #include <type_traits>
 
 #include "arrow/util/macros.h"
-#include "arrow/util/type_traits.h"
+//#include "arrow/util/type_traits.h"
 #include "arrow/util/visibility.h"
+
+//JJH added
+typedef struct uint8array16_s {
+	uint8_t data[16];
+} uint8array16;
 
 namespace arrow {
 
@@ -116,8 +124,9 @@ class ARROW_EXPORT BasicDecimal128 {
   /// \brief Get the low bits of the two's complement representation of the number.
   inline constexpr uint64_t low_bits() const { return low_bits_; }
 
-  /// \brief Return the raw bytes of the value in native-endian byte order.
-  std::array<uint8_t, 16> ToBytes() const;
+  /// \brief Return the raw bytes of the value in little-endian byte order.
+//  std::array<uint8_t, 16> ToBytes() const;
+  uint8array16 ToBytes() const;
   void ToBytes(uint8_t* out) const;
 
   /// \brief separate the integer and fractional parts for the given scale.

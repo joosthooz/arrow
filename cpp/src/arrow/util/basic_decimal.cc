@@ -17,24 +17,51 @@
 
 #include "arrow/util/basic_decimal.h"
 
-#include <algorithm>
-#include <array>
-#include <climits>
-#include <cstdint>
-#include <cstdlib>
-#include <cstring>
-#include <iomanip>
-#include <limits>
-#include <string>
-
 #include "arrow/util/bit_util.h"
 #include "arrow/util/endian.h"
 #include "arrow/util/int128_internal.h"
 #include "arrow/util/int_util_internal.h"
+//#include <algorithm>
+//#include <array>
+//#include <climits>
+//#include <cstdint>
+#include <limits.h>
+//#include <cstdlib>
+//#include <cstring>
+//#include <iomanip>
+//#include <limits>
+//#include <string>
+#include <string.h>
+#include <stdlib.h>//for abs()
+#include "arrow/util/type_traits.h" //for isooneof
+
+//#include "arrow/util/bit_util.h"
+#include "arrow/util/int_util.h"
 #include "arrow/util/logging.h"
 #include "arrow/util/macros.h"
 
+
 namespace arrow {
+
+//JJH: added from bit_util.h:
+static inline int CountLeadingZeros(uint32_t value) {
+  if (value == 0) return 32;
+  return static_cast<int>(__builtin_clz(value));
+}
+static inline int CountLeadingZeros(uint64_t value) {
+  if (value == 0) return 64;
+  return static_cast<int>(__builtin_clzll(value));
+}
+template <typename T, typename = internal::EnableIfIsOneOf<T, int64_t, uint64_t, int32_t,
+                                                           uint32_t, int16_t, uint16_t>>
+static inline T FromLittleEndian(T value) {
+  return value;
+}
+template <typename T, typename = internal::EnableIfIsOneOf<T, int64_t, uint64_t, int32_t,
+                                                           uint32_t, int16_t, uint16_t>>
+static inline T ToLittleEndian(T value) {
+  return value;
+}
 
 using internal::SafeLeftShift;
 using internal::SafeSignedAdd;
@@ -354,9 +381,9 @@ BasicDecimal128::BasicDecimal128(const uint8_t* bytes)
                       reinterpret_cast<const uint64_t*>(bytes)[1]) {}
 #endif
 
-std::array<uint8_t, 16> BasicDecimal128::ToBytes() const {
-  std::array<uint8_t, 16> out{{0}};
-  ToBytes(out.data());
+uint8array16 BasicDecimal128::ToBytes() const {
+	uint8array16 out{{0}};
+  ToBytes(out.data);
   return out;
 }
 
@@ -656,7 +683,7 @@ static int64_t FillInArray(const BasicDecimal128& value, uint32_t* array,
   // called here as the following code has better performance, to avoid regression on
   // BasicDecimal128 Division.
   if (high != 0) {
-    if (high > std::numeric_limits<uint32_t>::max()) {
+    if (high > UINT_MAX) {
       array[0] = static_cast<uint32_t>(high >> 32);
       array[1] = static_cast<uint32_t>(high);
       array[2] = static_cast<uint32_t>(low >> 32);
@@ -670,7 +697,7 @@ static int64_t FillInArray(const BasicDecimal128& value, uint32_t* array,
     return 3;
   }
 
-  if (low > std::numeric_limits<uint32_t>::max()) {
+  if (low >= UINT_MAX) {
     array[0] = static_cast<uint32_t>(low >> 32);
     array[1] = static_cast<uint32_t>(low);
     return 2;
@@ -859,14 +886,14 @@ static inline DecimalStatus DecimalDivide(const DecimalClass& dividend,
   // Normalize by shifting both by a multiple of 2 so that
   // the digit guessing is better. The requirement is that
   // divisor_array[0] is greater than 2**31.
-  int64_t normalize_bits = BitUtil::CountLeadingZeros(divisor_array[0]);
+  int64_t normalize_bits = CountLeadingZeros(divisor_array[0]);
   ShiftArrayLeft(divisor_array, divisor_length, normalize_bits);
   ShiftArrayLeft(dividend_array, dividend_length, normalize_bits);
 
   // compute each digit in the result
   for (int64_t j = 0; j < result_length; ++j) {
     // Guess the next digit. At worst it is two too large
-    uint32_t guess = std::numeric_limits<uint32_t>::max();
+    uint32_t guess = UINT_MAX;
     const auto high_dividend =
         static_cast<uint64_t>(dividend_array[j]) << 32 | dividend_array[j + 1];
     if (dividend_array[j] != divisor_array[0]) {
@@ -1035,7 +1062,7 @@ DecimalStatus DecimalRescale(const DecimalClass& value, int32_t original_scale,
   }
 
   const int32_t delta_scale = new_scale - original_scale;
-  const int32_t abs_delta_scale = std::abs(delta_scale);
+  const int32_t abs_delta_scale = abs(delta_scale);
 
   DecimalClass multiplier = DecimalClass::GetScaleMultiplier(abs_delta_scale);
 
@@ -1111,9 +1138,9 @@ int32_t BasicDecimal128::CountLeadingBinaryZeros() const {
   DCHECK_GE(*this, BasicDecimal128(0));
 
   if (high_bits_ == 0) {
-    return BitUtil::CountLeadingZeros(low_bits_) + 64;
+    return CountLeadingZeros(low_bits_) + 64;
   } else {
-    return BitUtil::CountLeadingZeros(static_cast<uint64_t>(high_bits_));
+    return CountLeadingZeros(static_cast<uint64_t>(high_bits_));
   }
 }
 

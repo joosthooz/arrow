@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include <cstdint>
+//#include <cstdint>
+#include <stdint.h>
 
 #define ARROW_EXPAND(x) x
 #define ARROW_STRINGIFY(x) #x
