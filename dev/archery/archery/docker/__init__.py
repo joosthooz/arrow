@@ -15,19 +15,4 @@
 # specific language governing permissions and limitations
 # under the License.
 
-class TestInMemoryScanTask < Test::Unit::TestCase
-  def setup
-    @record_batches = [
-      Arrow::RecordBatch.new(visible: [true, false, true],
-                             point: [1, 2, 3]),
-    ]
-  end
-
-  sub_test_case(".new") do
-    test("[[Arrow::RecordBatch]]") do
-      scan_task = ArrowDataset::InMemoryScanTask.new(@record_batches)
-      assert_equal(@record_batches,
-                   scan_task.execute.to_a)
-    end
-  end
-end
+from .core import DockerCompose, UndefinedImage  # noqa

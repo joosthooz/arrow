@@ -58,6 +58,26 @@ class BaseTestStringKernels : public ::testing::Test {
                             json_expected, options);
   }
 
+  void CheckVarArgsScalar(std::string func_name, std::string json_input,
+                          std::shared_ptr<DataType> out_ty, std::string json_expected,
+                          const FunctionOptions* options = nullptr) {
+    // CheckScalar (on arrays) checks scalar arguments individually,
+    // but this lets us test the all-scalar case explicitly
+    ScalarVector inputs;
+    std::shared_ptr<Array> args = ArrayFromJSON(type(), json_input);
+    for (int64_t i = 0; i < args->length(); i++) {
+      ASSERT_OK_AND_ASSIGN(auto scalar, args->GetScalar(i));
+      inputs.push_back(std::move(scalar));
+    }
+    CheckScalar(func_name, inputs, ScalarFromJSON(out_ty, json_expected), options);
+  }
+
+  void CheckVarArgs(std::string func_name, const std::vector<Datum>& inputs,
+                    std::shared_ptr<DataType> out_ty, std::string json_expected,
+                    const FunctionOptions* options = nullptr) {
+    CheckScalar(func_name, inputs, ArrayFromJSON(out_ty, json_expected), options);
+  }
+
   std::shared_ptr<DataType> type() { return TypeTraits<TestType>::type_singleton(); }
 
   template <typename CType>
@@ -153,6 +173,36 @@ TYPED_TEST(TestBinaryKernels, FindSubstring) {
                    "[0, 0, null]", &options_empty);
 }
 
+#ifdef ARROW_WITH_RE2
+TYPED_TEST(TestBinaryKernels, FindSubstringIgnoreCase) {
+  MatchSubstringOptions options{"?AB)", /*ignore_case=*/true};
+  this->CheckUnary("find_substring", "[]", this->offset_type(), "[]", &options);
+  this->CheckUnary("find_substring",
+                   R"-(["?aB)c", "acb", "c?Ab)", null, "?aBc", "AB)"])-",
+                   this->offset_type(), "[0, -1, 1, null, -1, -1]", &options);
+}
+
+TYPED_TEST(TestBinaryKernels, FindSubstringRegex) {
+  MatchSubstringOptions options{"a+", /*ignore_case=*/false};
+  this->CheckUnary("find_substring_regex", "[]", this->offset_type(), "[]", &options);
+  this->CheckUnary("find_substring_regex", R"(["a", "A", "baaa", null, "", "AaaA"])",
+                   this->offset_type(), "[0, -1, 1, null, -1, 1]", &options);
+
+  options.ignore_case = true;
+  this->CheckUnary("find_substring_regex", "[]", this->offset_type(), "[]", &options);
+  this->CheckUnary("find_substring_regex", R"(["a", "A", "baaa", null, "", "AaaA"])",
+                   this->offset_type(), "[0, 0, 1, null, -1, 0]", &options);
+}
+#else
+TYPED_TEST(TestBinaryKernels, FindSubstringIgnoreCase) {
+  MatchSubstringOptions options{"a+", /*ignore_case=*/true};
+  Datum input = ArrayFromJSON(this->type(), R"(["a"])");
+  EXPECT_RAISES_WITH_MESSAGE_THAT(NotImplemented,
+                                  ::testing::HasSubstr("ignore_case requires RE2"),
+                                  CallFunction("find_substring", {input}, &options));
+}
+#endif
+
 TYPED_TEST(TestBinaryKernels, CountSubstring) {
   MatchSubstringOptions options{"aba"};
   this->CheckUnary("count_substring", "[]", this->offset_type(), "[]", &options);
@@ -228,6 +278,105 @@ TYPED_TEST(TestBinaryKernels, CountSubstringIgnoreCase) {
                                   CallFunction("count_substring", {input}, &options));
 }
 #endif
+
+TYPED_TEST(TestBinaryKernels, BinaryJoinElementWise) {
+  const auto ty = this->type();
+  JoinOptions options;
+  JoinOptions options_skip(JoinOptions::SKIP);
+  JoinOptions options_replace(JoinOptions::REPLACE, "X");
+  // Scalar args, Scalar separator
+  this->CheckVarArgsScalar("binary_join_element_wise", R"([null])", ty, R"(null)",
+                           &options);
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["-"])", ty, R"("")", &options);
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["a", "-"])", ty, R"("a")",
+                           &options);
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["a", "b", "-"])", ty,
+                           R"("a-b")", &options);
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["a", "b", null])", ty,
+                           R"(null)", &options);
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["a", null, "-"])", ty,
+                           R"(null)", &options);
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["foo", "bar", "baz", "++"])",
+                           ty, R"("foo++bar++baz")", &options);
+
+  // Scalar args, Array separator
+  const auto sep = ArrayFromJSON(ty, R"([null, "-", "--"])");
+  const auto scalar1 = ScalarFromJSON(ty, R"("foo")");
+  const auto scalar2 = ScalarFromJSON(ty, R"("bar")");
+  const auto scalar3 = ScalarFromJSON(ty, R"("")");
+  const auto scalar_null = ScalarFromJSON(ty, R"(null)");
+  this->CheckVarArgs("binary_join_element_wise", {sep}, ty, R"([null, "", ""])",
+                     &options);
+  this->CheckVarArgs("binary_join_element_wise", {scalar1, sep}, ty,
+                     R"([null, "foo", "foo"])", &options);
+  this->CheckVarArgs("binary_join_element_wise", {scalar1, scalar2, sep}, ty,
+                     R"([null, "foo-bar", "foo--bar"])", &options);
+  this->CheckVarArgs("binary_join_element_wise", {scalar1, scalar_null, sep}, ty,
+                     R"([null, null, null])", &options);
+  this->CheckVarArgs("binary_join_element_wise", {scalar1, scalar2, scalar3, sep}, ty,
+                     R"([null, "foo-bar-", "foo--bar--"])", &options);
+
+  // Array args, Scalar separator
+  const auto sep1 = ScalarFromJSON(ty, R"("-")");
+  const auto sep2 = ScalarFromJSON(ty, R"("--")");
+  const auto arr1 = ArrayFromJSON(ty, R"([null, "a", "bb", "ccc"])");
+  const auto arr2 = ArrayFromJSON(ty, R"(["d", null, "e", ""])");
+  const auto arr3 = ArrayFromJSON(ty, R"(["gg", null, "h", "iii"])");
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, arr3, scalar_null}, ty,
+                     R"([null, null, null, null])", &options);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, arr3, sep1}, ty,
+                     R"([null, null, "bb-e-h", "ccc--iii"])", &options);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, arr3, sep2}, ty,
+                     R"([null, null, "bb--e--h", "ccc----iii"])", &options);
+
+  // Array args, Array separator
+  const auto sep3 = ArrayFromJSON(ty, R"(["-", "--", null, "---"])");
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, arr3, sep3}, ty,
+                     R"([null, null, null, "ccc------iii"])", &options);
+
+  // Mixed
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar2, sep3}, ty,
+                     R"([null, null, null, "ccc------bar"])", &options);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar_null, sep3}, ty,
+                     R"([null, null, null, null])", &options);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar2, sep1}, ty,
+                     R"([null, null, "bb-e-bar", "ccc--bar"])", &options);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar_null, scalar_null},
+                     ty, R"([null, null, null, null])", &options);
+
+  // Skip
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["a", null, "b", "-"])", ty,
+                           R"("a-b")", &options_skip);
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["a", null, "b", null])", ty,
+                           R"(null)", &options_skip);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar2, sep3}, ty,
+                     R"(["d-bar", "a--bar", null, "ccc------bar"])", &options_skip);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar_null, sep3}, ty,
+                     R"(["d", "a", null, "ccc---"])", &options_skip);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar2, sep1}, ty,
+                     R"(["d-bar", "a-bar", "bb-e-bar", "ccc--bar"])", &options_skip);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar_null, scalar_null},
+                     ty, R"([null, null, null, null])", &options_skip);
+
+  // Replace
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["a", null, "b", "-"])", ty,
+                           R"("a-X-b")", &options_replace);
+  this->CheckVarArgsScalar("binary_join_element_wise", R"(["a", null, "b", null])", ty,
+                           R"(null)", &options_replace);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar2, sep3}, ty,
+                     R"(["X-d-bar", "a--X--bar", null, "ccc------bar"])",
+                     &options_replace);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar_null, sep3}, ty,
+                     R"(["X-d-X", "a--X--X", null, "ccc------X"])", &options_replace);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar2, sep1}, ty,
+                     R"(["X-d-bar", "a-X-bar", "bb-e-bar", "ccc--bar"])",
+                     &options_replace);
+  this->CheckVarArgs("binary_join_element_wise", {arr1, arr2, scalar_null, scalar_null},
+                     ty, R"([null, null, null, null])", &options_replace);
+
+  // Error cases
+  ASSERT_RAISES(Invalid, CallFunction("binary_join_element_wise", {}, &options));
+}
 
 template <typename TestType>
 class TestStringKernels : public BaseTestStringKernels<TestType> {};
@@ -1076,6 +1225,33 @@ TYPED_TEST(TestStringKernels, BinaryJoin) {
                     separators, expected);
 }
 
+TYPED_TEST(TestStringKernels, PadUTF8) {
+  // \xe2\x80\x88 = \u2008 is punctuation space, \xc3\xa1 = \u00E1 = á
+  PadOptions options{/*width=*/5, "\xe2\x80\x88"};
+  this->CheckUnary(
+      "utf8_center", R"([null, "a", "bb", "b\u00E1r", "foobar"])", this->type(),
+      R"([null, "\u2008\u2008a\u2008\u2008", "\u2008bb\u2008\u2008", "\u2008b\u00E1r\u2008", "foobar"])",
+      &options);
+  this->CheckUnary(
+      "utf8_lpad", R"([null, "a", "bb", "b\u00E1r", "foobar"])", this->type(),
+      R"([null, "\u2008\u2008\u2008\u2008a", "\u2008\u2008\u2008bb", "\u2008\u2008b\u00E1r", "foobar"])",
+      &options);
+  this->CheckUnary(
+      "utf8_rpad", R"([null, "a", "bb", "b\u00E1r", "foobar"])", this->type(),
+      R"([null, "a\u2008\u2008\u2008\u2008", "bb\u2008\u2008\u2008", "b\u00E1r\u2008\u2008", "foobar"])",
+      &options);
+
+  PadOptions options_bad{/*width=*/3, /*padding=*/"spam"};
+  auto input = ArrayFromJSON(this->type(), R"(["foo"])");
+  EXPECT_RAISES_WITH_MESSAGE_THAT(Invalid,
+                                  ::testing::HasSubstr("Padding must be one codepoint"),
+                                  CallFunction("utf8_lpad", {input}, &options_bad));
+  options_bad.padding = "";
+  EXPECT_RAISES_WITH_MESSAGE_THAT(Invalid,
+                                  ::testing::HasSubstr("Padding must be one codepoint"),
+                                  CallFunction("utf8_lpad", {input}, &options_bad));
+}
+
 #ifdef ARROW_WITH_UTF8PROC
 
 TYPED_TEST(TestStringKernels, TrimWhitespaceUTF8) {
@@ -1221,6 +1397,26 @@ TYPED_TEST(TestStringKernels, SliceCodeunitsNegPos) {
 }
 
 #endif  // ARROW_WITH_UTF8PROC
+
+TYPED_TEST(TestStringKernels, PadAscii) {
+  PadOptions options{/*width=*/5, " "};
+  this->CheckUnary("ascii_center", R"([null, "a", "bb", "bar", "foobar"])", this->type(),
+                   R"([null, "  a  ", " bb  ", " bar ", "foobar"])", &options);
+  this->CheckUnary("ascii_lpad", R"([null, "a", "bb", "bar", "foobar"])", this->type(),
+                   R"([null, "    a", "   bb", "  bar", "foobar"])", &options);
+  this->CheckUnary("ascii_rpad", R"([null, "a", "bb", "bar", "foobar"])", this->type(),
+                   R"([null, "a    ", "bb   ", "bar  ", "foobar"])", &options);
+
+  PadOptions options_bad{/*width=*/3, /*padding=*/"spam"};
+  auto input = ArrayFromJSON(this->type(), R"(["foo"])");
+  EXPECT_RAISES_WITH_MESSAGE_THAT(Invalid,
+                                  ::testing::HasSubstr("Padding must be one byte"),
+                                  CallFunction("ascii_lpad", {input}, &options_bad));
+  options_bad.padding = "";
+  EXPECT_RAISES_WITH_MESSAGE_THAT(Invalid,
+                                  ::testing::HasSubstr("Padding must be one byte"),
+                                  CallFunction("ascii_lpad", {input}, &options_bad));
+}
 
 TYPED_TEST(TestStringKernels, TrimWhitespaceAscii) {
   // \xe2\x80\x88 is punctuation space

@@ -54,14 +54,16 @@ foreach(SRC_FILE ${PRECOMPILED_SRCS})
   set(BC_FILE ${CMAKE_CURRENT_BINARY_DIR}/${SRC_BASE}.bc)
   set(PRECOMPILE_COMMAND)
   if(CMAKE_OSX_SYSROOT)
-    list(APPEND PRECOMPILE_COMMAND
-                ${CMAKE_COMMAND}
-                -E
-                env
-                SDKROOT=${CMAKE_OSX_SYSROOT})
+    list(APPEND
+         PRECOMPILE_COMMAND
+         ${CMAKE_COMMAND}
+         -E
+         env
+         SDKROOT=${CMAKE_OSX_SYSROOT})
   endif()
   list(
-    APPEND PRECOMPILE_COMMAND
+    APPEND 
+    PRECOMPILE_COMMAND
            tcecc -a ~/workspaces/TTA/tce/tce/scheduler/testbench/ADF/64b.adf
            ${PLATFORM_CLANG_OPTIONS}
            -DGANDIVA_IR
@@ -78,11 +80,12 @@ foreach(SRC_FILE ${PRECOMPILED_SRCS})
            ${ARROW_GANDIVA_PC_CXX_FLAGS}
            -I${CMAKE_SOURCE_DIR}/src
            -I${ARROW_BINARY_DIR}/src)
-
   if(NOT ARROW_USE_NATIVE_INT128)
     list(APPEND PRECOMPILE_COMMAND -I${Boost_INCLUDE_DIR})
   endif()
-  add_custom_command(OUTPUT ${BC_FILE} COMMAND ${PRECOMPILE_COMMAND} DEPENDS ${SRC_FILE})
+  add_custom_command(OUTPUT ${BC_FILE}
+                     COMMAND ${PRECOMPILE_COMMAND}
+                     DEPENDS ${SRC_FILE})
   list(APPEND BC_FILES ${BC_FILE})
 endforeach()
 
@@ -97,13 +100,12 @@ add_custom_command(OUTPUT ${GANDIVA_PRECOMPILED_CC_PATH}
                    COMMAND ${PYTHON_EXECUTABLE}
                            "${CMAKE_CURRENT_SOURCE_DIR}/../make_precompiled_bitcode.py"
                            ${GANDIVA_PRECOMPILED_CC_IN_PATH}
-                           ${GANDIVA_PRECOMPILED_BC_PATH}
-                           ${GANDIVA_PRECOMPILED_CC_PATH}
+                           ${GANDIVA_PRECOMPILED_BC_PATH} ${GANDIVA_PRECOMPILED_CC_PATH}
                    DEPENDS ${GANDIVA_PRECOMPILED_CC_IN_PATH}
                            ${GANDIVA_PRECOMPILED_BC_PATH})
 
-add_custom_target(precompiled ALL
-                  DEPENDS ${GANDIVA_PRECOMPILED_BC_PATH} ${GANDIVA_PRECOMPILED_CC_PATH})
+add_custom_target(precompiled ALL DEPENDS ${GANDIVA_PRECOMPILED_BC_PATH}
+                                          ${GANDIVA_PRECOMPILED_CC_PATH})
 
 # testing
 if(ARROW_BUILD_TESTS)
@@ -131,11 +133,8 @@ if(ARROW_BUILD_TESTS)
                  ../decimal_xlarge.cc)
   target_include_directories(gandiva-precompiled-test PRIVATE ${CMAKE_SOURCE_DIR}/src)
   target_link_libraries(gandiva-precompiled-test PRIVATE ${ARROW_TEST_LINK_LIBS})
-  target_compile_definitions(gandiva-precompiled-test
-                             PRIVATE
-                             GANDIVA_UNIT_TEST=1
-                             ARROW_STATIC
-                             GANDIVA_STATIC)
+  target_compile_definitions(gandiva-precompiled-test PRIVATE GANDIVA_UNIT_TEST=1
+                                                              ARROW_STATIC GANDIVA_STATIC)
   set(TEST_PATH "${EXECUTABLE_OUTPUT_PATH}/gandiva-precompiled-test")
   add_test(gandiva-precompiled-test ${TEST_PATH})
   set_property(TEST gandiva-precompiled-test

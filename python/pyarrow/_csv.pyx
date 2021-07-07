@@ -31,10 +31,11 @@ from pyarrow.lib cimport (check_status, Field, MemoryPool, Schema,
                           RecordBatchReader, ensure_type,
                           maybe_unbox_memory_pool, get_input_stream,
                           get_writer, native_transcoding_input_stream,
-                          pyarrow_unwrap_batch, pyarrow_unwrap_table,
-                          pyarrow_wrap_schema, pyarrow_wrap_table,
-                          pyarrow_wrap_data_type, pyarrow_unwrap_data_type,
-                          Table, RecordBatch, StopToken)
+                          pyarrow_unwrap_batch, pyarrow_unwrap_schema,
+                          pyarrow_unwrap_table, pyarrow_wrap_schema,
+                          pyarrow_wrap_table, pyarrow_wrap_data_type,
+                          pyarrow_unwrap_data_type, Table, RecordBatch,
+                          StopToken, _CRecordBatchWriter)
 from pyarrow.lib import frombytes, tobytes, SignalStopHandler
 from pyarrow.util import _stringify_path
 
@@ -58,6 +59,7 @@ cdef class ReadOptions(_Weakrefable):
         How much bytes to process at a time from the input stream.
         This will determine multi-threading granularity as well as
         the size of individual record batches or table chunks.
+        Minimum valid value for block size is 1
     skip_rows: int, optional (default 0)
         The number of rows to skip before the column names (if any)
         and the CSV data.
@@ -188,6 +190,9 @@ cdef class ReadOptions(_Weakrefable):
     @skip_rows_after_names.setter
     def skip_rows_after_names(self, value):
         deref(self.options).skip_rows_after_names = value
+
+    def validate(self):
+        check_status(deref(self.options).Validate())
 
     def equals(self, ReadOptions other):
         return (
@@ -359,6 +364,9 @@ cdef class ParseOptions(_Weakrefable):
     def ignore_empty_lines(self, value):
         deref(self.options).ignore_empty_lines = value
 
+    def validate(self):
+        check_status(deref(self.options).Validate())
+
     def equals(self, ParseOptions other):
         return (
             self.delimiter == other.delimiter and
@@ -440,6 +448,12 @@ cdef class ConvertOptions(_Weakrefable):
         If true, then strings in null_values are considered null for
         string columns.
         If false, then all strings are valid string values.
+    quoted_strings_can_be_null: bool, optional (default True)
+        Whether string / binary columns can have quoted null values.
+        If true *and* strings_can_be_null is true, then strings in
+        null_values are considered null for string columns, even when
+        quoted.
+        Otherwise, then all quoted strings are valid string values.
     auto_dict_encode: bool, optional (default False)
         Whether to try to automatically dict-encode string / binary data.
         If true, then when type inference detects a string or binary column,
@@ -471,9 +485,10 @@ cdef class ConvertOptions(_Weakrefable):
 
     def __init__(self, *, check_utf8=None, column_types=None, null_values=None,
                  true_values=None, false_values=None,
-                 strings_can_be_null=None, include_columns=None,
-                 include_missing_columns=None, auto_dict_encode=None,
-                 auto_dict_max_cardinality=None, timestamp_parsers=None):
+                 strings_can_be_null=None, quoted_strings_can_be_null=None,
+                 include_columns=None, include_missing_columns=None,
+                 auto_dict_encode=None, auto_dict_max_cardinality=None,
+                 timestamp_parsers=None):
         if check_utf8 is not None:
             self.check_utf8 = check_utf8
         if column_types is not None:
@@ -486,6 +501,8 @@ cdef class ConvertOptions(_Weakrefable):
             self.false_values = false_values
         if strings_can_be_null is not None:
             self.strings_can_be_null = strings_can_be_null
+        if quoted_strings_can_be_null is not None:
+            self.quoted_strings_can_be_null = quoted_strings_can_be_null
         if include_columns is not None:
             self.include_columns = include_columns
         if include_missing_columns is not None:
@@ -518,6 +535,17 @@ cdef class ConvertOptions(_Weakrefable):
     @strings_can_be_null.setter
     def strings_can_be_null(self, value):
         deref(self.options).strings_can_be_null = value
+
+    @property
+    def quoted_strings_can_be_null(self):
+        """
+        Whether string / binary columns can have quoted null values.
+        """
+        return deref(self.options).quoted_strings_can_be_null
+
+    @quoted_strings_can_be_null.setter
+    def quoted_strings_can_be_null(self, value):
+        deref(self.options).quoted_strings_can_be_null = value
 
     @property
     def column_types(self):
@@ -680,6 +708,9 @@ cdef class ConvertOptions(_Weakrefable):
         out.options.reset(new CCSVConvertOptions(move(options)))
         return out
 
+    def validate(self):
+        check_status(deref(self.options).Validate())
+
     def equals(self, ConvertOptions other):
         return (
             self.check_utf8 == other.check_utf8 and
@@ -689,6 +720,8 @@ cdef class ConvertOptions(_Weakrefable):
             self.false_values == other.false_values and
             self.timestamp_parsers == other.timestamp_parsers and
             self.strings_can_be_null == other.strings_can_be_null and
+            self.quoted_strings_can_be_null ==
+            other.quoted_strings_can_be_null and
             self.auto_dict_encode == other.auto_dict_encode and
             self.auto_dict_max_cardinality ==
             other.auto_dict_max_cardinality and
@@ -699,16 +732,16 @@ cdef class ConvertOptions(_Weakrefable):
     def __getstate__(self):
         return (self.check_utf8, self.column_types, self.null_values,
                 self.true_values, self.false_values, self.timestamp_parsers,
-                self.strings_can_be_null, self.auto_dict_encode,
-                self.auto_dict_max_cardinality, self.include_columns,
-                self.include_missing_columns)
+                self.strings_can_be_null, self.quoted_strings_can_be_null,
+                self.auto_dict_encode, self.auto_dict_max_cardinality,
+                self.include_columns, self.include_missing_columns)
 
     def __setstate__(self, state):
         (self.check_utf8, self.column_types, self.null_values,
          self.true_values, self.false_values, self.timestamp_parsers,
-         self.strings_can_be_null, self.auto_dict_encode,
-         self.auto_dict_max_cardinality, self.include_columns,
-         self.include_missing_columns) = state
+         self.strings_can_be_null, self.quoted_strings_can_be_null,
+         self.auto_dict_encode, self.auto_dict_max_cardinality,
+         self.include_columns, self.include_missing_columns) = state
 
     def __eq__(self, other):
         try:
@@ -905,14 +938,12 @@ cdef class WriteOptions(_Weakrefable):
         How many rows to process together when converting and writing
         CSV data
     """
-    cdef:
-        CCSVWriteOptions options
 
     # Avoid mistakingly creating attributes
     __slots__ = ()
 
     def __init__(self, *, include_header=None, batch_size=None):
-        self.options = CCSVWriteOptions.Defaults()
+        self.options.reset(new CCSVWriteOptions(CCSVWriteOptions.Defaults()))
         if include_header is not None:
             self.include_header = include_header
         if batch_size is not None:
@@ -923,11 +954,11 @@ cdef class WriteOptions(_Weakrefable):
         """
         Whether to write an initial header line with column names.
         """
-        return self.options.include_header
+        return deref(self.options).include_header
 
     @include_header.setter
     def include_header(self, value):
-        self.options.include_header = value
+        deref(self.options).include_header = value
 
     @property
     def batch_size(self):
@@ -935,18 +966,27 @@ cdef class WriteOptions(_Weakrefable):
         How many rows to process together when converting and writing
         CSV data.
         """
-        return self.options.batch_size
+        return deref(self.options).batch_size
 
     @batch_size.setter
     def batch_size(self, value):
-        self.options.batch_size = value
+        deref(self.options).batch_size = value
+
+    @staticmethod
+    cdef WriteOptions wrap(CCSVWriteOptions options):
+        out = WriteOptions()
+        out.options.reset(new CCSVWriteOptions(move(options)))
+        return out
+
+    def validate(self):
+        check_status(self.options.get().Validate())
 
 
 cdef _get_write_options(WriteOptions write_options, CCSVWriteOptions* out):
     if write_options is None:
         out[0] = CCSVWriteOptions.Defaults()
     else:
-        out[0] = write_options.options
+        out[0] = deref(write_options.options)
 
 
 def write_csv(data, output_file, write_options=None,
@@ -975,15 +1015,44 @@ def write_csv(data, output_file, write_options=None,
 
     get_writer(output_file, &stream)
     c_memory_pool = maybe_unbox_memory_pool(memory_pool)
+    c_write_options.io_context = CIOContext(c_memory_pool)
     if isinstance(data, RecordBatch):
         batch = pyarrow_unwrap_batch(data).get()
         with nogil:
-            check_status(WriteCSV(deref(batch), c_write_options, c_memory_pool,
-                                  stream.get()))
+            check_status(WriteCSV(deref(batch), c_write_options, stream.get()))
     elif isinstance(data, Table):
         table = pyarrow_unwrap_table(data).get()
         with nogil:
-            check_status(WriteCSV(deref(table), c_write_options, c_memory_pool,
-                                  stream.get()))
+            check_status(WriteCSV(deref(table), c_write_options, stream.get()))
     else:
         raise TypeError(f"Expected Table or RecordBatch, got '{type(data)}'")
+
+
+cdef class CSVWriter(_CRecordBatchWriter):
+    """Writer to create a CSV file.
+
+    Parameters
+    ----------
+    sink: string, path, pyarrow.OutputStream or file-like object
+        The location where to write the CSV data.
+    schema: pyarrow.Schema
+        The schema of the data to be written.
+    write_options: pyarrow.csv.WriteOptions
+        Options to configure writing the CSV data.
+    memory_pool: MemoryPool, optional
+        Pool for temporary allocations.
+    """
+
+    def __init__(self, sink, Schema schema, *,
+                 WriteOptions write_options=None, MemoryPool memory_pool=None):
+        cdef:
+            shared_ptr[COutputStream] c_stream
+            shared_ptr[CSchema] c_schema = pyarrow_unwrap_schema(schema)
+            CCSVWriteOptions c_write_options
+            CMemoryPool* c_memory_pool = maybe_unbox_memory_pool(memory_pool)
+        _get_write_options(write_options, &c_write_options)
+        c_write_options.io_context = CIOContext(c_memory_pool)
+        get_writer(sink, &c_stream)
+        with nogil:
+            self.writer = GetResultValue(MakeCSVWriter(
+                c_stream, c_schema, c_write_options))

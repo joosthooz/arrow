@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+#
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -15,22 +17,23 @@
 # specific language governing permissions and limitations
 # under the License.
 
-class TestScanOptions < Test::Unit::TestCase
-  def setup
-    @record_batches = [
-      Arrow::RecordBatch.new(visible: [true, false, true],
-                             point: [1, 2, 3]),
-    ]
-    @schema = @record_batches.first.schema
-  end
+set -e
 
-  sub_test_case(".try_convert") do
-    def test_hash
-      batch_size = 1024
-      context = ArrowDataset::ScanOptions.try_convert(schema: @schema,
-                                                      batch_size: batch_size)
-      assert_equal([@schema, batch_size],
-                   [context.schema, context.batch_size])
-    end
-  end
-end
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <vcpkg version> <target directory>"
+  exit 1
+fi
+
+vcpkg_version=$1
+vcpkg_destination=$2
+vcpkg_patch=$(realpath $(dirname "${0}")/../vcpkg/ports.patch)
+
+git clone --depth 1 --branch ${vcpkg_version} https://github.com/microsoft/vcpkg ${vcpkg_destination}
+
+pushd ${vcpkg_destination}
+
+./bootstrap-vcpkg.sh -useSystemBinaries -disableMetrics
+git apply --ignore-whitespace ${vcpkg_patch}
+echo "Patch successfully applied!"
+
+popd
