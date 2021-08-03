@@ -15,17 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#define __STDC_VERSION__ 201112L //dummy C version because tcecc does not define this for .cc files
 #include "arrow/util/basic_decimal.h"
 
 #include "arrow/util/bit_util.h"
-#include "arrow/util/endian.h"
-#include "arrow/util/int128_internal.h"
-#include "arrow/util/int_util_internal.h"
+//#include "arrow/util/endian.h"
+#define ARROW_LITTLE_ENDIAN 1
+//#include "arrow/util/int128_internal.h"
+//#include "arrow/util/int_util_internal.h"
 //#include <algorithm>
 //#include <array>
 //#include <climits>
-//#include <cstdint>
 #include <limits.h>
+//#include <cstdint>
+#include <stdint.h>
 //#include <cstdlib>
 //#include <cstring>
 //#include <iomanip>
@@ -33,15 +36,31 @@
 //#include <string>
 #include <string.h>
 #include <stdlib.h>//for abs()
-#include "arrow/util/type_traits.h" //for isooneof
+//#include "arrow/util/type_traits.h" //for isooneof
 
 //#include "arrow/util/bit_util.h"
-#include "arrow/util/int_util.h"
+//#include "arrow/util/int_util.h"
 #include "arrow/util/logging.h"
 #include "arrow/util/macros.h"
 
 
 namespace arrow {
+
+//from type_traits.h:
+template <typename...>
+struct IsOneOf : std::false_type {};  /// Base case: nothing has matched
+
+template <typename T, typename U, typename... Args>
+struct IsOneOf<T, U, Args...> {
+  /// Recursive case: T == U or T matches any other types provided (not including U).
+  static constexpr bool value = std::is_same<T, U>::value || IsOneOf<T, Args...>::value;
+};
+
+/// \brief Shorthand for using IsOneOf + std::enable_if
+template <typename T, typename... Args>
+using EnableIfIsOneOf = typename std::enable_if<IsOneOf<T, Args...>::value, T>::type;
+
+
 
 //JJH: added from bit_util.h:
 static inline int CountLeadingZeros(uint32_t value) {
@@ -52,16 +71,117 @@ static inline int CountLeadingZeros(uint64_t value) {
   if (value == 0) return 64;
   return static_cast<int>(__builtin_clzll(value));
 }
-template <typename T, typename = internal::EnableIfIsOneOf<T, int64_t, uint64_t, int32_t,
+template <typename T, typename = EnableIfIsOneOf<T, int64_t, uint64_t, int32_t,
                                                            uint32_t, int16_t, uint16_t>>
 static inline T FromLittleEndian(T value) {
   return value;
 }
-template <typename T, typename = internal::EnableIfIsOneOf<T, int64_t, uint64_t, int32_t,
+template <typename T, typename = EnableIfIsOneOf<T, int64_t, uint64_t, int32_t,
                                                            uint32_t, int16_t, uint16_t>>
 static inline T ToLittleEndian(T value) {
   return value;
 }
+
+//from int_util_internal.h
+#include "arrow/vendored/portable-snippets/safe-math.h"
+namespace internal {
+
+// Define functions AddWithOverflow, SubtractWithOverflow, MultiplyWithOverflow
+// with the signature `bool(T u, T v, T* out)` where T is an integer type.
+// On overflow, these functions return true.  Otherwise, false is returned
+// and `out` is updated with the result of the operation.
+
+#define OP_WITH_OVERFLOW(_func_name, _psnip_op, _type, _psnip_type) \
+  static inline bool _func_name(_type u, _type v, _type* out) {     \
+    return !psnip_safe_##_psnip_type##_##_psnip_op(out, u, v);      \
+  }
+
+#define OPS_WITH_OVERFLOW(_func_name, _psnip_op)            \
+  OP_WITH_OVERFLOW(_func_name, _psnip_op, int8_t, int8)     \
+  OP_WITH_OVERFLOW(_func_name, _psnip_op, int16_t, int16)   \
+  OP_WITH_OVERFLOW(_func_name, _psnip_op, int32_t, int32)   \
+  OP_WITH_OVERFLOW(_func_name, _psnip_op, int64_t, int64)   \
+  OP_WITH_OVERFLOW(_func_name, _psnip_op, uint8_t, uint8)   \
+  OP_WITH_OVERFLOW(_func_name, _psnip_op, uint16_t, uint16) \
+  OP_WITH_OVERFLOW(_func_name, _psnip_op, uint32_t, uint32) \
+  OP_WITH_OVERFLOW(_func_name, _psnip_op, uint64_t, uint64)
+
+OPS_WITH_OVERFLOW(AddWithOverflow, add)
+OPS_WITH_OVERFLOW(SubtractWithOverflow, sub)
+OPS_WITH_OVERFLOW(MultiplyWithOverflow, mul)
+OPS_WITH_OVERFLOW(DivideWithOverflow, div)
+
+#undef OP_WITH_OVERFLOW
+#undef OPS_WITH_OVERFLOW
+
+// Define function NegateWithOverflow with the signature `bool(T u, T* out)`
+// where T is a signed integer type.  On overflow, these functions return true.
+// Otherwise, false is returned and `out` is updated with the result of the
+// operation.
+
+#define UNARY_OP_WITH_OVERFLOW(_func_name, _psnip_op, _type, _psnip_type) \
+  static inline bool _func_name(_type u, _type* out) {                    \
+    return !psnip_safe_##_psnip_type##_##_psnip_op(out, u);               \
+  }
+
+#define SIGNED_UNARY_OPS_WITH_OVERFLOW(_func_name, _psnip_op)   \
+  UNARY_OP_WITH_OVERFLOW(_func_name, _psnip_op, int8_t, int8)   \
+  UNARY_OP_WITH_OVERFLOW(_func_name, _psnip_op, int16_t, int16) \
+  UNARY_OP_WITH_OVERFLOW(_func_name, _psnip_op, int32_t, int32) \
+  UNARY_OP_WITH_OVERFLOW(_func_name, _psnip_op, int64_t, int64)
+
+SIGNED_UNARY_OPS_WITH_OVERFLOW(NegateWithOverflow, neg)
+
+#undef UNARY_OP_WITH_OVERFLOW
+#undef SIGNED_UNARY_OPS_WITH_OVERFLOW
+
+/// Signed addition with well-defined behaviour on overflow (as unsigned)
+template <typename SignedInt>
+SignedInt SafeSignedAdd(SignedInt u, SignedInt v) {
+  using UnsignedInt = typename std::make_unsigned<SignedInt>::type;
+  return static_cast<SignedInt>(static_cast<UnsignedInt>(u) +
+                                static_cast<UnsignedInt>(v));
+}
+
+/// Signed subtraction with well-defined behaviour on overflow (as unsigned)
+template <typename SignedInt>
+SignedInt SafeSignedSubtract(SignedInt u, SignedInt v) {
+  using UnsignedInt = typename std::make_unsigned<SignedInt>::type;
+  return static_cast<SignedInt>(static_cast<UnsignedInt>(u) -
+                                static_cast<UnsignedInt>(v));
+}
+
+/// Signed negation with well-defined behaviour on overflow (as unsigned)
+template <typename SignedInt>
+SignedInt SafeSignedNegate(SignedInt u) {
+  using UnsignedInt = typename std::make_unsigned<SignedInt>::type;
+  return static_cast<SignedInt>(~static_cast<UnsignedInt>(u) + 1);
+}
+
+/// Signed left shift with well-defined behaviour on negative numbers or overflow
+template <typename SignedInt, typename Shift>
+SignedInt SafeLeftShift(SignedInt u, Shift shift) {
+  using UnsignedInt = typename std::make_unsigned<SignedInt>::type;
+  return static_cast<SignedInt>(static_cast<UnsignedInt>(u) << shift);
+}
+
+/// Upcast an integer to the largest possible width (currently 64 bits)
+
+template <typename Integer>
+typename std::enable_if<
+    std::is_integral<Integer>::value && std::is_signed<Integer>::value, int64_t>::type
+UpcastInt(Integer v) {
+  return v;
+}
+
+template <typename Integer>
+typename std::enable_if<
+    std::is_integral<Integer>::value && std::is_unsigned<Integer>::value, uint64_t>::type
+UpcastInt(Integer v) {
+  return v;
+}
+}
+
 
 using internal::SafeLeftShift;
 using internal::SafeSignedAdd;
@@ -601,13 +721,13 @@ struct uint128_t {
 // array into a same sized output. Elements in the array should be in
 // little endian order, and output will be the same. Overflow in multiplication
 // will result in the lower N * 64 bits of the result being set.
-template <int N>
-inline void MultiplyUnsignedArray(const std::array<uint64_t, N>& lh,
-                                  const std::array<uint64_t, N>& rh,
-                                  std::array<uint64_t, N>* result) {
-  for (int j = 0; j < N; ++j) {
+
+inline void MultiplyUnsignedArray2(const uint64_t lh[2],
+                                  const uint64_t rh[2],
+                                  uint64_t* result[2]) {
+  for (int j = 0; j < 2; ++j) {
     uint64_t carry = 0;
-    for (int i = 0; i < N - j; ++i) {
+    for (int i = 0; i < 2 - j; ++i) {
       uint128_t tmp(lh[i]);
       tmp *= uint128_t(rh[j]);
       tmp += uint128_t((*result)[i + j]);
@@ -617,6 +737,23 @@ inline void MultiplyUnsignedArray(const std::array<uint64_t, N>& lh,
     }
   }
 }
+
+inline void MultiplyUnsignedArray4(const uint64_t lh[4],
+                                  const uint64_t rh[4],
+								  uint64array4* result) {
+  for (int j = 0; j < 4; ++j) {
+    uint64_t carry = 0;
+    for (int i = 0; i < 4 - j; ++i) {
+      uint128_t tmp(lh[i]);
+      tmp *= uint128_t(rh[j]);
+      tmp += uint128_t((*result).data[i + j]);
+      tmp += uint128_t(carry);
+      (*result).data[i + j] = tmp.lo();
+      carry = tmp.hi();
+    }
+  }
+}
+
 
 }  // namespace
 
@@ -643,14 +780,15 @@ BasicDecimal128& BasicDecimal128::operator*=(const BasicDecimal128& right) {
 /// \param result_array a big endian array of length N*2 to set with the value
 /// \result the output length of the array
 template <size_t N>
-static int64_t FillInArray(const std::array<uint64_t, N>& value_array,
+static int64_t FillInArray(const uint64_t value_array[],
                            uint32_t* result_array) {
   int64_t next_index = 0;
   // 1st loop to find out 1st non-negative value in input
   int64_t i = N - 1;
   for (; i >= 0; i--) {
     if (value_array[i] != 0) {
-      if (value_array[i] <= std::numeric_limits<uint32_t>::max()) {
+//      if (value_array[i] <= std::numeric_limits<uint32_t>::max()) {
+      if (value_array[i] <= UINT_MAX) {
         result_array[next_index++] = static_cast<uint32_t>(value_array[i]);
         i--;
       }
@@ -726,7 +864,7 @@ static int64_t FillInArray(const BasicDecimal256& value, uint32_t* array,
     positive_value.Negate();
     was_negative = true;
   }
-  return FillInArray<4>(positive_value.little_endian_array(), array);
+  return FillInArray<4>(positive_value.little_endian_array().data, array);
 }
 
 /// Shift the number in the array left by bits positions.
@@ -771,25 +909,46 @@ static inline void FixDivisionSigns(DecimalClass* result, DecimalClass* remainde
 }
 
 /// \brief Build a little endian array of uint64_t from a big endian array of uint32_t.
-template <size_t N>
-static DecimalStatus BuildFromArray(std::array<uint64_t, N>* result_array,
+static DecimalStatus BuildFromArray2(uint64_t result_array[2],
                                     const uint32_t* array, int64_t length) {
-  for (int64_t i = length - 2 * N - 1; i >= 0; i--) {
+  for (int64_t i = length - 2 * 2 - 1; i >= 0; i--) {
     if (array[i] != 0) {
       return DecimalStatus::kOverflow;
     }
   }
   int64_t next_index = length - 1;
   size_t i = 0;
-  for (; i < N && next_index >= 0; i++) {
+  for (; i < 2 && next_index >= 0; i++) {
     uint64_t lower_bits = array[next_index--];
-    (*result_array)[i] =
+    (result_array)[i] =
         (next_index < 0)
             ? lower_bits
             : ((static_cast<uint64_t>(array[next_index--]) << 32) + lower_bits);
   }
-  for (; i < N; i++) {
-    (*result_array)[i] = 0;
+  for (; i < 2; i++) {
+    (result_array)[i] = 0;
+  }
+  return DecimalStatus::kSuccess;
+}
+
+static DecimalStatus BuildFromArray4(uint64_t result_array[4],
+                                    const uint32_t* array, int64_t length) {
+  for (int64_t i = length - 2 * 4 - 1; i >= 0; i--) {
+    if (array[i] != 0) {
+      return DecimalStatus::kOverflow;
+    }
+  }
+  int64_t next_index = length - 1;
+  size_t i = 0;
+  for (; i < 4 && next_index >= 0; i++) {
+    uint64_t lower_bits = array[next_index--];
+    (result_array)[i] =
+        (next_index < 0)
+            ? lower_bits
+            : ((static_cast<uint64_t>(array[next_index--]) << 32) + lower_bits);
+  }
+  for (; i < 4; i++) {
+    (result_array)[i] = 0;
   }
   return DecimalStatus::kSuccess;
 }
@@ -797,8 +956,8 @@ static DecimalStatus BuildFromArray(std::array<uint64_t, N>* result_array,
 /// \brief Build a BasicDecimal128 from a big endian array of uint32_t.
 static DecimalStatus BuildFromArray(BasicDecimal128* value, const uint32_t* array,
                                     int64_t length) {
-  std::array<uint64_t, 2> result_array;
-  auto status = BuildFromArray(&result_array, array, length);
+  uint64_t result_array[2];
+  auto status = BuildFromArray2(result_array, array, length);
   if (status != DecimalStatus::kSuccess) {
     return status;
   }
@@ -809,12 +968,16 @@ static DecimalStatus BuildFromArray(BasicDecimal128* value, const uint32_t* arra
 /// \brief Build a BasicDecimal256 from a big endian array of uint32_t.
 static DecimalStatus BuildFromArray(BasicDecimal256* value, const uint32_t* array,
                                     int64_t length) {
-  std::array<uint64_t, 4> result_array;
-  auto status = BuildFromArray(&result_array, array, length);
+  uint64_t result_array[4];
+  auto status = BuildFromArray4(result_array, array, length);
   if (status != DecimalStatus::kSuccess) {
     return status;
   }
-  *value = result_array;
+  uint64array4 arr;
+  for (int i = 0; i < 4; i++) {
+	  arr.data[i] = result_array[i];
+  }
+  *value = BasicDecimal256(arr);
   return DecimalStatus::kSuccess;
 }
 
@@ -1147,10 +1310,10 @@ int32_t BasicDecimal128::CountLeadingBinaryZeros() const {
 #if ARROW_LITTLE_ENDIAN
 BasicDecimal256::BasicDecimal256(const uint8_t* bytes)
     : little_endian_array_(
-          std::array<uint64_t, 4>({reinterpret_cast<const uint64_t*>(bytes)[0],
+          {reinterpret_cast<const uint64_t*>(bytes)[0],
                                    reinterpret_cast<const uint64_t*>(bytes)[1],
                                    reinterpret_cast<const uint64_t*>(bytes)[2],
-                                   reinterpret_cast<const uint64_t*>(bytes)[3]})) {}
+                                   reinterpret_cast<const uint64_t*>(bytes)[3]}) {}
 #else
 BasicDecimal256::BasicDecimal256(const uint8_t* bytes)
     : little_endian_array_(
@@ -1162,7 +1325,7 @@ BasicDecimal256::BasicDecimal256(const uint8_t* bytes)
 
 BasicDecimal256& BasicDecimal256::Negate() {
   uint64_t carry = 1;
-  for (uint64_t& elem : little_endian_array_) {
+  for (uint64_t& elem : little_endian_array_.data) {
     elem = ~elem + carry;
     carry &= (elem == 0);
   }
@@ -1178,18 +1341,18 @@ BasicDecimal256 BasicDecimal256::Abs(const BasicDecimal256& in) {
 
 BasicDecimal256& BasicDecimal256::operator+=(const BasicDecimal256& right) {
   uint64_t carry = 0;
-  for (size_t i = 0; i < little_endian_array_.size(); i++) {
-    const uint64_t right_value = right.little_endian_array_[i];
+  for (size_t i = 0; i < 4; i++) {
+    const uint64_t right_value = right.little_endian_array_.data[i];
     uint64_t sum = right_value + carry;
     carry = 0;
     if (sum < right_value) {
       carry += 1;
     }
-    sum += little_endian_array_[i];
-    if (sum < little_endian_array_[i]) {
+    sum += little_endian_array_.data[i];
+    if (sum < little_endian_array_.data[i]) {
       carry += 1;
     }
-    little_endian_array_[i] = sum;
+    little_endian_array_.data[i] = sum;
   }
   return *this;
 }
@@ -1204,45 +1367,47 @@ BasicDecimal256& BasicDecimal256::operator<<=(uint32_t bits) {
     return *this;
   }
   int cross_word_shift = bits / 64;
-  if (static_cast<size_t>(cross_word_shift) >= little_endian_array_.size()) {
-    little_endian_array_ = {0, 0, 0, 0};
+  if (static_cast<size_t>(cross_word_shift) >= 4) {
+    for (int i = 0; i < 4; i++) {
+    	little_endian_array_.data[i] = 0;
+    }
     return *this;
   }
   uint32_t in_word_shift = bits % 64;
-  for (int i = static_cast<int>(little_endian_array_.size() - 1); i >= cross_word_shift;
+  for (int i = static_cast<int>(4 - 1); i >= cross_word_shift;
        i--) {
     // Account for shifts larger then 64 bits
-    little_endian_array_[i] = little_endian_array_[i - cross_word_shift];
-    little_endian_array_[i] <<= in_word_shift;
+    little_endian_array_.data[i] = little_endian_array_.data[i - cross_word_shift];
+    little_endian_array_.data[i] <<= in_word_shift;
     if (in_word_shift != 0 && i >= cross_word_shift + 1) {
-      little_endian_array_[i] |=
-          little_endian_array_[i - (cross_word_shift + 1)] >> (64 - in_word_shift);
+      little_endian_array_.data[i] |=
+          little_endian_array_.data[i - (cross_word_shift + 1)] >> (64 - in_word_shift);
     }
   }
   for (int i = cross_word_shift - 1; i >= 0; i--) {
-    little_endian_array_[i] = 0;
+    little_endian_array_.data[i] = 0;
   }
   return *this;
 }
 
-std::array<uint8_t, 32> BasicDecimal256::ToBytes() const {
-  std::array<uint8_t, 32> out{{0}};
-  ToBytes(out.data());
+uint8array32 BasicDecimal256::ToBytes() const {
+  uint8array32 out{0};
+  ToBytes(out.data);
   return out;
 }
 
 void BasicDecimal256::ToBytes(uint8_t* out) const {
   DCHECK_NE(out, nullptr);
 #if ARROW_LITTLE_ENDIAN
-  reinterpret_cast<int64_t*>(out)[0] = little_endian_array_[0];
-  reinterpret_cast<int64_t*>(out)[1] = little_endian_array_[1];
-  reinterpret_cast<int64_t*>(out)[2] = little_endian_array_[2];
-  reinterpret_cast<int64_t*>(out)[3] = little_endian_array_[3];
+  reinterpret_cast<int64_t*>(out)[0] = little_endian_array_.data[0];
+  reinterpret_cast<int64_t*>(out)[1] = little_endian_array_.data[1];
+  reinterpret_cast<int64_t*>(out)[2] = little_endian_array_.data[2];
+  reinterpret_cast<int64_t*>(out)[3] = little_endian_array_.data[3];
 #else
-  reinterpret_cast<int64_t*>(out)[0] = little_endian_array_[3];
-  reinterpret_cast<int64_t*>(out)[1] = little_endian_array_[2];
-  reinterpret_cast<int64_t*>(out)[2] = little_endian_array_[1];
-  reinterpret_cast<int64_t*>(out)[3] = little_endian_array_[0];
+  reinterpret_cast<int64_t*>(out)[0] = little_endian_array_.data[3];
+  reinterpret_cast<int64_t*>(out)[1] = little_endian_array_.data[2];
+  reinterpret_cast<int64_t*>(out)[2] = little_endian_array_.data[1];
+  reinterpret_cast<int64_t*>(out)[3] = little_endian_array_.data[0];
 #endif
 }
 
@@ -1255,8 +1420,8 @@ BasicDecimal256& BasicDecimal256::operator*=(const BasicDecimal256& right) {
 
   uint128_t r_hi;
   uint128_t r_lo;
-  std::array<uint64_t, 4> res{0, 0, 0, 0};
-  MultiplyUnsignedArray<4>(x.little_endian_array_, y.little_endian_array_, &res);
+  uint64array4 res = {0};
+  MultiplyUnsignedArray4(x.little_endian_array_.data, y.little_endian_array_.data, &res);
   little_endian_array_ = res;
   if (negate) {
     Negate();
@@ -1328,8 +1493,12 @@ BasicDecimal256 operator*(const BasicDecimal256& left, const BasicDecimal256& ri
 }
 
 bool operator<(const BasicDecimal256& left, const BasicDecimal256& right) {
-  const std::array<uint64_t, 4>& lhs = left.little_endian_array();
-  const std::array<uint64_t, 4>& rhs = right.little_endian_array();
+  uint64_t lhs[4];
+  uint64_t rhs[4];
+  for (int i = 0; i < 4; i++) {
+	  lhs[i] = left.little_endian_array().data[i];
+	  rhs[i] = right.little_endian_array().data[i];
+  }
   return lhs[3] != rhs[3]
              ? static_cast<int64_t>(lhs[3]) < static_cast<int64_t>(rhs[3])
              : lhs[2] != rhs[2] ? lhs[2] < rhs[2]
@@ -1342,8 +1511,11 @@ BasicDecimal256 operator-(const BasicDecimal256& operand) {
 }
 
 BasicDecimal256 operator~(const BasicDecimal256& operand) {
-  const std::array<uint64_t, 4>& arr = operand.little_endian_array();
-  BasicDecimal256 result({~arr[0], ~arr[1], ~arr[2], ~arr[3]});
+  uint64array4 arr = operand.little_endian_array();
+  for (int i = 0; i < 4; i++) {
+	  arr.data[i] = ~arr.data[i];
+  }
+  BasicDecimal256 result(arr);
   return result;
 }
 

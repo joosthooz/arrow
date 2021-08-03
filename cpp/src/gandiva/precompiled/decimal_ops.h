@@ -17,11 +17,44 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string>
+//#include <cstdint>
+#include <stdint.h>
+//#include <string>
+#include <string.h>
 #include "gandiva/basic_decimal_scalar.h"
 
 namespace gandiva {
+
+//from decimal_type_util.h:
+class DecimalTypeUtil {
+ public:
+  enum Op {
+    kOpAdd,
+    kOpSubtract,
+    kOpMultiply,
+    kOpDivide,
+    kOpMod,
+  };
+
+  /// The maximum precision representable by a 4-byte decimal
+  static constexpr int32_t kMaxDecimal32Precision = 9;
+
+  /// The maximum precision representable by a 8-byte decimal
+  static constexpr int32_t kMaxDecimal64Precision = 18;
+
+  /// The maximum precision representable by a 16-byte decimal
+  static constexpr int32_t kMaxPrecision = 38;
+
+  // The maximum scale representable.
+  static constexpr int32_t kMaxScale = kMaxPrecision;
+
+  // When operating on decimal inputs, the integer part of the output can exceed the
+  // max precision. In such cases, the scale can be reduced, up to a minimum of
+  // kMinAdjustedScale.
+  // * There is no strong reason for 6, but both SQLServer and Impala use 6 too.
+  static constexpr int32_t kMinAdjustedScale = 6;
+};
+
 namespace decimalops {
 
 /// Return the sum of 'x' and 'y'.

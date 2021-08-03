@@ -412,7 +412,7 @@ struct DecimalConversions<Decimal128, Decimal256> {
   // Scale then truncate
   static Decimal256 ConvertInput(Decimal256&& val) { return val; }
   static Decimal128 ConvertOutput(Decimal256&& val) {
-    return Decimal128(val.little_endian_array()[1], val.little_endian_array()[0]);
+    return Decimal128(val.little_endian_array().data[1], val.little_endian_array().data[0]);
   }
 };
 

@@ -235,9 +235,13 @@ double Decimal128::ToDouble(int32_t scale) const {
   return DecimalDoubleConversion::ToReal(*this, scale);
 }
 
-template <size_t n>
-static void AppendLittleEndianArrayToString(const std::array<uint64_t, n>& array,
+static void AppendLittleEndianArrayToString(const uint64array4 inarray,
                                             std::string* result) {
+	const std::array<uint64_t, 4>& array = std::array<uint64_t, 4>({inarray.data[0],
+		inarray.data[1],
+		inarray.data[2],
+		inarray.data[3]});
+
   const auto most_significant_non_zero =
       find_if(array.rbegin(), array.rend(), [](uint64_t v) { return v != 0; });
   if (most_significant_non_zero == array.rend()) {
@@ -246,9 +250,9 @@ static void AppendLittleEndianArrayToString(const std::array<uint64_t, n>& array
   }
 
   size_t most_significant_elem_idx = &*most_significant_non_zero - array.data();
-  std::array<uint64_t, n> copy = array;
+  std::array<uint64_t, 4> copy = array;
   constexpr uint32_t k1e9 = 1000000000U;
-  constexpr size_t kNumBits = n * 64;
+  constexpr size_t kNumBits = 4 * 64;
   // Segments will contain the array split into groups that map to decimal digits,
   // in little endian order. Each segment will hold at most 9 decimal digits.
   // For example, if the input represents 9876543210123456789, then segments will be
@@ -308,10 +312,10 @@ std::string Decimal128::ToIntegerString() const {
     result.push_back('-');
     Decimal128 abs = *this;
     abs.Negate();
-    AppendLittleEndianArrayToString<2>(
+    AppendLittleEndianArrayToString(
         {abs.low_bits(), static_cast<uint64_t>(abs.high_bits())}, &result);
   } else {
-    AppendLittleEndianArrayToString<2>({low_bits(), static_cast<uint64_t>(high_bits())},
+    AppendLittleEndianArrayToString({low_bits(), static_cast<uint64_t>(high_bits())},
                                        &result);
   }
   return result;
@@ -671,7 +675,7 @@ Decimal256::Decimal256(const std::string& str) : Decimal256() {
 
 std::string Decimal256::ToIntegerString() const {
   std::string result;
-  if (static_cast<int64_t>(little_endian_array()[3]) < 0) {
+  if (static_cast<int64_t>(little_endian_array().data[3]) < 0) {
     result.push_back('-');
     Decimal256 abs = *this;
     abs.Negate();
@@ -721,10 +725,10 @@ Status Decimal256::FromString(const util::string_view& s, Decimal256* out,
   }
 
   if (out != nullptr) {
-    std::array<uint64_t, 4> little_endian_array = {0, 0, 0, 0};
-    ShiftAndAdd(dec.whole_digits, little_endian_array.data(), little_endian_array.size());
-    ShiftAndAdd(dec.fractional_digits, little_endian_array.data(),
-                little_endian_array.size());
+    uint64array4 little_endian_array = {0, 0, 0, 0};
+    ShiftAndAdd(dec.whole_digits, little_endian_array.data, 4);
+    ShiftAndAdd(dec.fractional_digits, little_endian_array.data,
+                4);
     *out = Decimal256(little_endian_array);
 
     if (dec.sign == '-') {
@@ -763,7 +767,7 @@ Result<Decimal256> Decimal256::FromBigEndian(const uint8_t* bytes, int32_t lengt
   static constexpr int32_t kMinDecimalBytes = 1;
   static constexpr int32_t kMaxDecimalBytes = 32;
 
-  std::array<uint64_t, 4> little_endian_array;
+  uint64array4 little_endian_array;
 
   if (ARROW_PREDICT_FALSE(length < kMinDecimalBytes || length > kMaxDecimalBytes)) {
     return Status::Invalid("Length of byte array passed to Decimal128::FromBigEndian ",
@@ -780,7 +784,7 @@ Result<Decimal256> Decimal256::FromBigEndian(const uint8_t* bytes, int32_t lengt
 
     if (word_length == 8) {
       // Full words can be assigned as is (and are UB with the shift below).
-      little_endian_array[word_idx] =
+      little_endian_array.data[word_idx] =
           UInt64FromBigEndian(bytes + length - word_length, word_length);
     } else {
       // Sign extend the word its if necessary
@@ -792,7 +796,7 @@ Result<Decimal256> Decimal256::FromBigEndian(const uint8_t* bytes, int32_t lengt
         // Preserve the upper bits by inplace OR-ing the int64_t
         word |= UInt64FromBigEndian(bytes + length - word_length, word_length);
       }
-      little_endian_array[word_idx] = word;
+      little_endian_array.data[word_idx] = word;
     }
     // Move on to the next word.
     length -= word_length;
@@ -841,9 +845,10 @@ struct Decimal256RealConversion {
     DCHECK_LT(part1, 1.8446744073709552e+19);  // 2**64
     DCHECK_GE(part0, 0);
     DCHECK_LT(part0, 1.8446744073709552e+19);  // 2**64
-    return Decimal256(std::array<uint64_t, 4>{
-        static_cast<uint64_t>(part0), static_cast<uint64_t>(part1),
-        static_cast<uint64_t>(part2), static_cast<uint64_t>(part3)});
+    uint64array4 arr = {
+            static_cast<uint64_t>(part0), static_cast<uint64_t>(part1),
+            static_cast<uint64_t>(part2), static_cast<uint64_t>(part3)};
+    return Decimal256(arr);
   }
 
   static Result<Decimal256> FromReal(Real x, int32_t precision, int32_t scale) {
@@ -865,7 +870,7 @@ struct Decimal256RealConversion {
   static Real ToRealPositive(const Decimal256& decimal, int32_t scale) {
     DCHECK_GE(decimal, 0);
     Real x = 0;
-    const auto& parts = decimal.little_endian_array();
+    const auto& parts = decimal.little_endian_array().data;
     x += Derived::two_to_192(static_cast<Real>(parts[3]));
     x += Derived::two_to_128(static_cast<Real>(parts[2]));
     x += Derived::two_to_64(static_cast<Real>(parts[1]));
@@ -879,7 +884,7 @@ struct Decimal256RealConversion {
   }
 
   static Real ToReal(Decimal256 decimal, int32_t scale) {
-    if (decimal.little_endian_array()[3] & (1ULL << 63)) {
+    if (decimal.little_endian_array().data[3] & (1ULL << 63)) {
       // Convert the absolute value to avoid precision loss
       decimal.Negate();
       return -ToRealPositive(decimal, scale);

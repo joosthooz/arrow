@@ -520,7 +520,7 @@ class RepeatedArrayFactory {
 
   Status Visit(const Decimal128Type&) {
     auto value = checked_cast<const Decimal128Scalar&>(scalar_).value.ToBytes();
-    return FinishFixedWidth(value.data(), value.size());
+    return FinishFixedWidth(&value, 16);
   }
 
   template <typename T>

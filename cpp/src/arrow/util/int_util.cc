@@ -18,8 +18,10 @@
 #include "arrow/util/int_util.h"
 
 #include <algorithm>
-#include <cstring>
-#include <limits>
+//#include <cstring>
+#include <string.h>
+//#include <limits>
+#include <limits.h>
 
 #include "arrow/array/data.h"
 #include "arrow/datum.h"

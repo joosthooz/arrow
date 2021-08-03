@@ -29,7 +29,8 @@
 #define ARROW_POPCOUNT32 __builtin_popcount
 #endif
 
-#include <cstdint>
+//#include <cstdint>
+#include <stdint.h>
 #include <type_traits>
 
 #include "arrow/util/macros.h"

@@ -17,10 +17,11 @@
 
 #pragma once
 
-#include <cstdint>
+//#include <cstdint>
+#include <stdint.h>
 
 #include "arrow/util/basic_decimal.h"
-#include "arrow/util/decimal.h"
+//#include "arrow/util/decimal.h"
 
 namespace gandiva {
 

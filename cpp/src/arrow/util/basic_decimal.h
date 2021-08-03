@@ -35,6 +35,14 @@ typedef struct uint8array16_s {
 	uint8_t data[16];
 } uint8array16;
 
+typedef struct uint8array32_s {
+	uint8_t data[32];
+} uint8array32;
+
+typedef struct uint64array4_s {
+	uint64_t data[4];
+} uint64array4;
+
 namespace arrow {
 
 enum class DecimalStatus {
@@ -66,6 +74,10 @@ class ARROW_EXPORT BasicDecimal128 {
   constexpr BasicDecimal128(T value) noexcept
       : BasicDecimal128(value >= T{0} ? 0 : -1, static_cast<uint64_t>(value)) {  // NOLINT
   }
+
+  constexpr BasicDecimal128(long long value) noexcept
+        : BasicDecimal128(value >= 0 ? 0 : -1, static_cast<uint64_t>(value)) {  // NOLINT
+    }
 
   /// \brief Create a BasicDecimal128 from an array of bytes. Bytes are assumed to be in
   /// native-endian byte order.
@@ -202,7 +214,7 @@ class ARROW_EXPORT BasicDecimal256 {
   static constexpr int bit_width = 256;
 
   /// \brief Create a BasicDecimal256 from the two's complement representation.
-  constexpr BasicDecimal256(const std::array<uint64_t, 4>& little_endian_array) noexcept
+  constexpr BasicDecimal256(const uint64array4 little_endian_array) noexcept
       : little_endian_array_(little_endian_array) {}
 
   /// \brief Empty constructor creates a BasicDecimal256 with a value of 0.
@@ -245,15 +257,15 @@ class ARROW_EXPORT BasicDecimal256 {
   /// BasicDecimal256(123).little_endian_array() = {123, 0, 0, 0};
   /// BasicDecimal256(-2).little_endian_array() = {0xFF...FE, 0xFF...FF, 0xFF...FF,
   /// 0xFF...FF}.
-  inline const std::array<uint64_t, 4>& little_endian_array() const {
+  inline const uint64array4 little_endian_array() const {
     return little_endian_array_;
   }
 
   /// \brief Get the lowest bits of the two's complement representation of the number.
-  inline constexpr uint64_t low_bits() const { return little_endian_array_[0]; }
+  inline constexpr uint64_t low_bits() const { return little_endian_array_.data[0]; }
 
   /// \brief Return the raw bytes of the value in native-endian byte order.
-  std::array<uint8_t, 32> ToBytes() const;
+uint8array32 ToBytes() const;
   void ToBytes(uint8_t* out) const;
 
   /// \brief Scale multiplier for given scale value.
@@ -279,11 +291,11 @@ class ARROW_EXPORT BasicDecimal256 {
   bool FitsInPrecision(int32_t precision) const;
 
   inline int64_t Sign() const {
-    return 1 | (static_cast<int64_t>(little_endian_array_[3]) >> 63);
+    return 1 | (static_cast<int64_t>(little_endian_array_.data[3]) >> 63);
   }
 
   inline int64_t IsNegative() const {
-    return static_cast<int64_t>(little_endian_array_[3]) < 0;
+    return static_cast<int64_t>(little_endian_array_.data[3]) < 0;
   }
 
   /// \brief Multiply this number by another number. The result is truncated to 256 bits.
@@ -309,7 +321,7 @@ class ARROW_EXPORT BasicDecimal256 {
   BasicDecimal256& operator/=(const BasicDecimal256& right);
 
  private:
-  std::array<uint64_t, 4> little_endian_array_;
+  uint64array4 little_endian_array_;
 };
 
 ARROW_EXPORT inline bool operator==(const BasicDecimal256& left,

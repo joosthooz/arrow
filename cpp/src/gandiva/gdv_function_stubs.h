@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include <cstdint>
+//#include <cstdint>
+#include <stdint.h>
 
 #include "gandiva/visibility.h"
 

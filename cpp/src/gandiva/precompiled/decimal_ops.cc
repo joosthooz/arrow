@@ -19,12 +19,15 @@
 
 #include "gandiva/precompiled/decimal_ops.h"
 
-#include <algorithm>
-#include <cmath>
-#include <limits>
+//#include <algorithm>
+//#include <cmath>
+#include <math.h>
+//#include <limits>
+#include <limits.h>
+#include <array>
 
 #include "arrow/util/logging.h"
-#include "gandiva/decimal_type_util.h"
+//#include "gandiva/decimal_type_util.h"
 #include "gandiva/decimal_xlarge.h"
 #include "gandiva/gdv_function_stubs.h"
 
@@ -35,6 +38,15 @@
 
 namespace gandiva {
 namespace decimalops {
+
+//JJH added
+#define max(x,y) ( \
+    { __auto_type __x = (x); __auto_type __y = (y); \
+      __x > __y ? __x : __y; })
+
+#define min(x,y) ( \
+    { __auto_type __x = (x); __auto_type __y = (y); \
+      __x < __y ? __x : __y; })
 
 using arrow::BasicDecimal128;
 
@@ -49,7 +61,8 @@ static BasicDecimal128 CheckAndReduceScale(const BasicDecimal128& in, int32_t de
 /// Adjust x and y to the same scale, and add them.
 static BasicDecimal128 AddFastPath(const BasicDecimalScalar128& x,
                                    const BasicDecimalScalar128& y, int32_t out_scale) {
-  auto higher_scale = std::max(x.scale(), y.scale());
+//  auto higher_scale = max(x.scale(), y.scale());
+  auto higher_scale = max(x.scale(), y.scale());
 
   auto x_scaled = CheckAndIncreaseScale(x.value(), higher_scale - x.scale());
   auto y_scaled = CheckAndIncreaseScale(y.value(), higher_scale - y.scale());
@@ -59,7 +72,7 @@ static BasicDecimal128 AddFastPath(const BasicDecimalScalar128& x,
 /// Add x and y, caller has ensured there can be no overflow.
 static BasicDecimal128 AddNoOverflow(const BasicDecimalScalar128& x,
                                      const BasicDecimalScalar128& y, int32_t out_scale) {
-  auto higher_scale = std::max(x.scale(), y.scale());
+  auto higher_scale = max(x.scale(), y.scale());
   auto sum = AddFastPath(x, y, out_scale);
   return CheckAndReduceScale(sum, higher_scale - out_scale);
 }
@@ -77,7 +90,7 @@ static BasicDecimal128 AddLargePositive(const BasicDecimalScalar128& x,
   y.value().GetWholeAndFraction(y.scale(), &y_left, &y_right);
 
   // Adjust fractional parts to higher scale.
-  auto higher_scale = std::max(x.scale(), y.scale());
+  auto higher_scale = max(x.scale(), y.scale());
   auto x_right_scaled = CheckAndIncreaseScale(x_right, higher_scale - x.scale());
   auto y_right_scaled = CheckAndIncreaseScale(y_right, higher_scale - y.scale());
 
@@ -111,7 +124,7 @@ static BasicDecimal128 AddLargeNegative(const BasicDecimalScalar128& x,
   y.value().GetWholeAndFraction(y.scale(), &y_left, &y_right);
 
   // Adjust fractional parts to higher scale.
-  auto higher_scale = std::max(x.scale(), y.scale());
+  auto higher_scale = max(x.scale(), y.scale());
   x_right = CheckAndIncreaseScale(x_right, higher_scale - x.scale());
   y_right = CheckAndIncreaseScale(y_right, higher_scale - y.scale());
 
@@ -205,7 +218,7 @@ inline int32_t MinLeadingZeros(const BasicDecimalScalar128& x,
   } else if (x.scale() > y.scale()) {
     y_lz = MinLeadingZerosAfterScaling(y_lz, x.scale() - y.scale());
   }
-  return std::min(x_lz, y_lz);
+  return min(x_lz, y_lz);
 }
 
 BasicDecimal128 Add(const BasicDecimalScalar128& x, const BasicDecimalScalar128& y,
@@ -406,7 +419,7 @@ BasicDecimal128 Mod(int64_t context, const BasicDecimalScalar128& x,
   BasicDecimal128 result;
   int32_t min_lz = MinLeadingZeros(x, y);
   if (min_lz >= 2) {
-    auto higher_scale = std::max(x.scale(), y.scale());
+    auto higher_scale = max(x.scale(), y.scale());
     auto x_scaled = CheckAndIncreaseScale(x.value(), higher_scale - x.scale());
     auto y_scaled = CheckAndIncreaseScale(y.value(), higher_scale - y.scale());
     result = x_scaled % y_scaled;

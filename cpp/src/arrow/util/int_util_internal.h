@@ -17,8 +17,10 @@
 
 #pragma once
 
-#include <cstdint>
-#include <limits>
+//#include <cstdint>
+#include <stdint.h>
+//#include <limits>
+#include <limits.h>
 #include <type_traits>
 
 #include "arrow/status.h"

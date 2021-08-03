@@ -17,16 +17,21 @@
 
 #pragma once
 
-#include <cstdint>
-#include <iosfwd>
-#include <limits>
-#include <string>
-#include <utility>
+//#include <cstdint>
+#include <stdint.h>
+//#include <iosfwd>
+//#include <limits>
+#include <limits.h>
+//#include <string>
+#include <string.h>
+//#include <utility>
 
 #include "arrow/result.h"
 #include "arrow/status.h"
 #include "arrow/util/basic_decimal.h"
 #include "arrow/util/string_view.h"
+#include <type_traits>
+#include "arrow/util/type_traits.h" //for isooneof
 
 namespace arrow {
 

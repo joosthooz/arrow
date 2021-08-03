@@ -261,7 +261,7 @@ const char* gdv_fn_sha256_decimal128(int64_t context, int64_t x_high, uint64_t x
   }
 
   const gandiva::BasicDecimal128 decimal_128(x_high, x_low);
-  return gandiva::gdv_hash_using_sha256(context, decimal_128.ToBytes().data(), 16,
+  return gandiva::gdv_hash_using_sha256(context, decimal_128.ToBytes().data, 16,
                                         out_length);
 }
 
@@ -274,7 +274,7 @@ const char* gdv_fn_sha1_decimal128(int64_t context, int64_t x_high, uint64_t x_l
   }
 
   const gandiva::BasicDecimal128 decimal_128(x_high, x_low);
-  return gandiva::gdv_hash_using_sha1(context, decimal_128.ToBytes().data(), 16,
+  return gandiva::gdv_hash_using_sha1(context, decimal_128.ToBytes().data, 16,
                                       out_length);
 }
 

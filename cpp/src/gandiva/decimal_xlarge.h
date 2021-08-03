@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include <cstdint>
+//#include <cstdint>
+#include <stdint.h>
 
 /// Stub functions to deal with extra large decimals that can be accessed from LLVM-IR
 /// code.

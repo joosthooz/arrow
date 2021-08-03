@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include <cstdint>
+//#include <cstdint>
+#include <stdint.h>
 
 #include "gandiva/gdv_function_stubs.h"
 

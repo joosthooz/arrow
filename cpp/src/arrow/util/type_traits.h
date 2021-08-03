@@ -17,7 +17,8 @@
 
 #pragma once
 
-#include <cstdint>
+//#include <cstdint>
+#include <stdint.h>
 #include <type_traits>
 
 namespace arrow {
@@ -78,7 +79,7 @@ struct aligned_union {
 
 #else
 
-template <std::size_t Len, typename... T>
+template <size_t Len, typename... T>
 using aligned_union = std::aligned_union<Len, T...>;
 
 #endif
