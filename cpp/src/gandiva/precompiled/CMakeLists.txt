@@ -20,14 +20,14 @@ project(gandiva)
 set(PRECOMPILED_SRCS
     arithmetic_ops.cc
     bitmap.cc
-    decimal_ops.cc
-    decimal_wrapper.cc
-    extended_math_ops.cc
+    #decimal_ops.cc
+    #decimal_wrapper.cc
+    #extended_math_ops.cc
     hash.cc
     print.cc
-    string_ops.cc
-    time.cc
-    timestamp_arithmetic.cc
+    #string_ops.cc
+    #time.cc
+    #timestamp_arithmetic.cc
     ../../arrow/util/basic_decimal.cc)
 
 if(MSVC)
@@ -43,7 +43,7 @@ if(MSVC)
   set(PLATFORM_CLANG_OPTIONS -std=c++14 -fms-compatibility
                              -fms-compatibility-version=${FMS_COMPATIBILITY})
 else()
-  set(PLATFORM_CLANG_OPTIONS -isystem ~/workspaces/TTA/includes/improv) #-std=c++11)
+  set(PLATFORM_CLANG_OPTIONS -isystem ~/workspaces/TTA/includes/improv --std=c++11) #-std=c++11)
 # -isystem ~/workspaces/TTA/includes/c++/7
 endif()
 
@@ -71,7 +71,7 @@ foreach(SRC_FILE ${PRECOMPILED_SRCS})
            -DARROW_STATIC # Do not set __declspec(dllimport) on MSVC on Arrow symbols
            -DGANDIVA_STATIC # Do not set __declspec(dllimport) on MSVC on Gandiva symbols
            -fno-use-cxa-atexit # Workaround for unresolved __dso_handle
-           -emit-llvm
+           --emit-llvm
            -O3
            -c
            ${ABSOLUTE_SRC}
