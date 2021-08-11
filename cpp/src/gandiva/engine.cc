@@ -128,7 +128,7 @@ Status Engine::Init() {
   AddGlobalMappings();
 
   ARROW_RETURN_NOT_OK(LoadPreCompiledIR());
-  ARROW_RETURN_NOT_OK(DecimalIR::AddFunctions(this));
+//  ARROW_RETURN_NOT_OK(DecimalIR::AddFunctions(this));
 
   return Status::OK();
 }
