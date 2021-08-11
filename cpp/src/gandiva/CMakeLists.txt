@@ -92,10 +92,12 @@ set(SRC_FILES
     random_generator_holder.cc
     ${GANDIVA_PRECOMPILED_CC_PATH})
 
-set(GANDIVA_SHARED_PRIVATE_LINK_LIBS arrow_shared LLVM::LLVM_INTERFACE
+link_directories(/usr/local/stow/llvm-12/lib)
+link_directories(~/local/lib64)
+set(GANDIVA_SHARED_PRIVATE_LINK_LIBS arrow_shared libLLVMTCE.so libtce.so LLVM::LLVM_INTERFACE
                                      ${GANDIVA_OPENSSL_LIBS})
 
-set(GANDIVA_STATIC_LINK_LIBS arrow_static LLVM::LLVM_INTERFACE ${GANDIVA_OPENSSL_LIBS})
+set(GANDIVA_STATIC_LINK_LIBS arrow_static libLLVMTCE.so libtce.so LLVM::LLVM_INTERFACE ${GANDIVA_OPENSSL_LIBS})
 
 if(ARROW_GANDIVA_STATIC_LIBSTDCPP AND (CMAKE_COMPILER_IS_GNUCC OR CMAKE_COMPILER_IS_GNUCXX
                                       ))
@@ -151,6 +153,18 @@ add_arrow_lib(gandiva
 foreach(LIB_TARGET ${GANDIVA_LIBRARIES})
   target_compile_definitions(${LIB_TARGET} PRIVATE GANDIVA_EXPORTING)
   set_target_properties(${LIB_TARGET} PROPERTIES CXX_STANDARD ${GANDIVA_CXX_STANDARD})
+  target_include_directories(${LIB_TARGET} PRIVATE /home/jjhoozemans/workspaces/TTA/tce/tce/src/applibs/LLVMBackend
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/applibs/LLVMBackend/plugin
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/applibs/Scheduler
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/applibs/Scheduler/Algorithms
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/tools
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/applibs/osal
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/base/osal
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/base/mach
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/base/Graph
+/home/jjhoozemans/workspaces/TTA/tce/tce/src/base/program
+/home/jjhoozemans/workspaces/TTA/tce/tce
+)
 endforeach()
 
 if(ARROW_BUILD_STATIC AND WIN32)
