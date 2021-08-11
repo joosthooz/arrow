@@ -97,6 +97,10 @@ Filter::~Filter() {}
 Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
                     std::shared_ptr<Configuration> configuration,
                     std::shared_ptr<Filter>* filter) {
+
+  ARROW_LOG(INFO) << "Filter Make, condition: ";
+  ARROW_LOG(INFO) << condition.get()->ToString() << "\n";
+
   ARROW_RETURN_IF(schema == nullptr, Status::Invalid("Schema cannot be null"));
   ARROW_RETURN_IF(condition == nullptr, Status::Invalid("Condition cannot be null"));
   ARROW_RETURN_IF(configuration == nullptr,
@@ -111,17 +115,23 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
   }
 
   // Build LLVM generator, and generate code for the specified expression
+  ARROW_LOG(INFO) << "Building LLVM generator";
   std::unique_ptr<LLVMGenerator> llvm_gen;
   ARROW_RETURN_NOT_OK(LLVMGenerator::Make(configuration, &llvm_gen));
+  ARROW_LOG(INFO) << "Finished building LLVM generator";
 
   // Run the validation on the expression.
   // Return if the expression is invalid since we will not be able to process further.
+  ARROW_LOG(INFO) << "Validating expression";
   ExprValidator expr_validator(llvm_gen->types(), schema);
   ARROW_RETURN_NOT_OK(expr_validator.Validate(condition));
   ARROW_RETURN_NOT_OK(llvm_gen->Build({condition}, SelectionVector::Mode::MODE_NONE));
+  ARROW_LOG(INFO) << "Finished validating expression";
 
   // Instantiate the filter with the completely built llvm generator
+  ARROW_LOG(INFO) << "Instantiating the filter";
   *filter = std::make_shared<Filter>(std::move(llvm_gen), schema, configuration);
+  ARROW_LOG(INFO) << "Finished instantiating the filter";
   cache.PutModule(cache_key, *filter);
 
   return Status::OK();
@@ -130,6 +140,9 @@ Status Filter::Make(SchemaPtr schema, ConditionPtr condition,
 Status Filter::Evaluate(const arrow::RecordBatch& batch,
                         std::shared_ptr<SelectionVector> out_selection) {
   const auto num_rows = batch.num_rows();
+
+  ARROW_LOG(INFO) << "Evaluating Filter";
+
   ARROW_RETURN_IF(!batch.schema()->Equals(*schema_),
                   Status::Invalid("RecordBatch schema must expected filter schema"));
   ARROW_RETURN_IF(num_rows == 0, Status::Invalid("RecordBatch must be non-empty."));
@@ -148,6 +161,7 @@ Status Filter::Evaluate(const arrow::RecordBatch& batch,
   auto array_data = arrow::ArrayData::Make(arrow::boolean(), num_rows, {validity, value});
 
   // Execute the expression(s).
+  ARROW_LOG(INFO) << "Executing the expression";
   ARROW_RETURN_NOT_OK(llvm_generator_->Execute(batch, {array_data}));
 
   // Compute the intersection of the value and validity.

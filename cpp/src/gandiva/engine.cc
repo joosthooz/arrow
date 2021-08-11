@@ -78,6 +78,22 @@
 #include "gandiva/decimal_ir.h"
 #include "gandiva/exported_funcs_registry.h"
 
+#include "TCETargetMachine.hh"
+#include "TCEStubTargetMachine.hh"
+#include "TCETargetMachinePlugin.hh"
+#include "Machine.hh"
+#include "LLVMBackend.hh"
+#include "LLVMTCECmdLineOptions.hh"
+#include "InterPassData.hh"
+#include "llvm/IR/PassManager.h"
+#include "llvm/Support/CommandLine.h"
+
+using namespace llvm;
+
+LLVMBackend *TCEBackend;
+TCETargetMachine* targetMachine;
+TTAMachine::Machine *target;
+
 namespace gandiva {
 
 extern const unsigned char kPrecompiledBitcode[];
@@ -91,12 +107,14 @@ static llvm::SmallVector<std::string, 10> cpu_attrs;
 void Engine::InitOnce() {
   DCHECK_EQ(llvm_init, false);
 
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetAsmPrinter();
-  llvm::InitializeNativeTargetAsmParser();
-  llvm::InitializeNativeTargetDisassembler();
+//  llvm::InitializeNativeTarget();
+//  llvm::InitializeNativeTargetAsmPrinter();
+//  llvm::InitializeNativeTargetAsmParser();
+//  llvm::InitializeNativeTargetDisassembler();
+  InitializeAllTargets();
+  InitializeAllAsmPrinters();
   llvm::sys::DynamicLibrary::LoadLibraryPermanently(nullptr);
-
+/*
   cpu_name = llvm::sys::getHostCPUName();
   llvm::StringMap<bool> host_features;
   std::string cpu_attrs_str;
@@ -110,6 +128,10 @@ void Engine::InitOnce() {
   }
   ARROW_LOG(INFO) << "Detected CPU Name : " << cpu_name.str();
   ARROW_LOG(INFO) << "Detected CPU Features:" << cpu_attrs_str;
+  */
+
+
+  ARROW_LOG(INFO) << "Gandiva modified by TUD";
   llvm_init = true;
 }
 
@@ -127,8 +149,10 @@ Status Engine::Init() {
   // Add mappings for functions that can be accessed from LLVM/IR module.
   AddGlobalMappings();
 
+  ARROW_LOG(INFO) << "Loading precompiled IR";
   ARROW_RETURN_NOT_OK(LoadPreCompiledIR());
-  ARROW_RETURN_NOT_OK(DecimalIR::AddFunctions(this));
+  ARROW_LOG(INFO) << "Skipping Adding DecimalIR functions";
+//  ARROW_RETURN_NOT_OK(DecimalIR::AddFunctions(this)); //JJH: this causes a crash, disable for now but revisit later.
 
   return Status::OK();
 }
@@ -138,12 +162,75 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
                     std::unique_ptr<Engine>* out) {
   std::call_once(llvm_init_once_flag, InitOnce);
 
+  ARROW_LOG(INFO) << "Making LLVM Engine";
   auto ctx = arrow::internal::make_unique<llvm::LLVMContext>();
   auto module = arrow::internal::make_unique<llvm::Module>("codegen", *ctx);
 
   // Capture before moving, ExecutionEngine does not allow retrieving the
   // original Module.
+  ARROW_LOG(INFO) << "Getting module";
   auto module_ptr = module.get();
+
+  //prevent optimizing out the generated code because it is currently not called yet
+    const char *argv[] = {"-internalize-public-api-list=_start,_pthread_start,_dthread_start,main"};
+    cl::ParseCommandLineOptions(1, argv);
+
+    std::string targetStr ="tcele64-llvm";
+    std::string errorStr;
+    std::string featureString ="";
+
+    // Register target to llvm for using lookupTarget
+  LLVMInitializeTCETargetInfo();
+  LLVMInitializeTCETarget();
+  //LLVMInitializeTCEStubTarget(); //JJH: seems to be needed to set ST which is return for getSubtarget(), but it causes an earlier crash
+
+
+    std::ofstream LLVMIR_EngineMake_outfile;
+    std::time_t time = std::time(nullptr);
+    LLVMIR_EngineMake_outfile.open ("LLVMIR_EngineMake_" + std::to_string(time));
+    LLVMIR_EngineMake_outfile << "Engine:Make Waiting a short while...\n";
+    for (int j = 0; j < 2; j++)
+    for (volatile int i = 0; i < 1999999999; i++) ; //Give user some time to attach a debugger
+    LLVMIR_EngineMake_outfile << "Engine:Make Continuing... after " << std::time(nullptr) - time;
+    LLVMIR_EngineMake_outfile.close();
+
+//  module_ptr->setDataLayout("e-p:64:64:64-i1:8:8-i8:8:64-i16:16:64-i32:32:64-i64:64:64-f32:32:64-f64:64:64-v64:64:64-v128:128:128-v256:256:256-v512:512:512-v1024:1024:1024-a0:0:64-n64");
+    ARROW_LOG(INFO) << "Setting target Triple";
+    module_ptr->setTargetTriple(targetStr);
+  // get registered target machine and set plugin.
+    ARROW_LOG(INFO) << "Performing Target lookup";
+	  const Target* tceTarget =
+		  TargetRegistry::lookupTarget(targetStr, errorStr);
+
+	  if (!tceTarget) {
+		  std::cerr << "lookupTarget error: " << errorStr << "\n";
+	  }
+
+    ARROW_LOG(INFO) << "Creating TTA LLVM backend";
+	  LLVMTCECmdLineOptions* options = new LLVMTCECmdLineOptions;
+	  Application::setCmdLineOptions(options); //must call before creating LLVMBackend, as that will fetch the options from Application::
+	  TCEBackend = new LLVMBackend(false, "/tmp/tcetmpding/");
+	  target = TTAMachine::Machine::loadFromADF("/home/jjhoozemans/workspaces/TTA/64b_joost.adf");
+	  //auto targetPlugin = TCEBackend->createPlugin(*target);
+	  //std::unique_ptr<TCETargetMachinePlugin> plugin(targetPlugin);
+
+    ARROW_LOG(INFO) << "Creating target Machine";
+	  std::string cpuStr = "tce";
+	  TargetOptions Options;
+	  targetMachine =
+			  static_cast<TCETargetMachine*>(
+				  tceTarget->createTargetMachine(
+					  targetStr, cpuStr, featureString, Options,
+					  Reloc::Model::Static));
+	  if (!targetMachine) {
+		  std::cerr << "Could not create tce target machine" << "\n";
+	  }
+
+    ARROW_LOG(INFO) << "Setting target Machine Plugin";
+	  // This hack must be cleaned up before adding TCE target to llvm upstream
+	  // these are needed by TCETargetMachine::addInstSelector passes
+//	  targetMachine->setTargetMachinePlugin(*plugin, *target);
+//	  targetMachine->setEmulationModule(emulationModule);
 
   auto opt_level =
       conf->optimize() ? llvm::CodeGenOpt::Aggressive : llvm::CodeGenOpt::None;
@@ -153,23 +240,26 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
   // inspecting LLVM sources.
   std::string builder_error;
 
+  ARROW_LOG(INFO) << "Creating EngineBuilder";
   llvm::EngineBuilder engine_builder(std::move(module));
 
   engine_builder.setEngineKind(llvm::EngineKind::JIT)
       .setOptLevel(opt_level)
       .setErrorStr(&builder_error);
 
-  if (conf->target_host_cpu()) {
-    engine_builder.setMCPU(cpu_name);
-    engine_builder.setMAttrs(cpu_attrs);
-  }
-  std::unique_ptr<llvm::ExecutionEngine> exec_engine{engine_builder.create()};
+//  if (conf->target_host_cpu()) {
+//    engine_builder.setMCPU(cpu_name);
+//    engine_builder.setMAttrs(cpu_attrs);
+//  }
+  ARROW_LOG(INFO) << "Creating exec_engine";
+  std::unique_ptr<llvm::ExecutionEngine> exec_engine{engine_builder.create(targetMachine)};
 
   if (exec_engine == nullptr) {
     return Status::CodeGenError("Could not instantiate llvm::ExecutionEngine: ",
                                 builder_error);
   }
 
+  ARROW_LOG(INFO) << "Creating Engine";
   std::unique_ptr<Engine> engine{
       new Engine(conf, std::move(ctx), std::move(exec_engine), module_ptr)};
   ARROW_RETURN_NOT_OK(engine->Init());
@@ -187,27 +277,34 @@ Status Engine::Make(const std::shared_ptr<Configuration>& conf,
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 static void SetDataLayout(llvm::Module* module) {
-  auto target_triple = llvm::sys::getDefaultTargetTriple();
+//  auto target_triple = llvm::sys::getDefaultTargetTriple();
+	  std::string targetStr ="tcele64";
   std::string error_message;
-  auto target = llvm::TargetRegistry::lookupTarget(target_triple, error_message);
+  auto target = llvm::TargetRegistry::lookupTarget(targetStr, error_message);
   if (!target) {
     return;
   }
 
-  std::string cpu(llvm::sys::getHostCPUName());
+//  std::string cpu(llvm::sys::getHostCPUName());
+  std::string cpu("tce");
   llvm::SubtargetFeatures features;
   llvm::StringMap<bool> host_features;
-
+/*
   if (llvm::sys::getHostCPUFeatures(host_features)) {
     for (auto& f : host_features) {
       features.AddFeature(f.first(), f.second);
     }
   }
-
+*/
+  std::string featureString ="";
   std::unique_ptr<llvm::TargetMachine> machine(
-      target->createTargetMachine(target_triple, cpu, features.getString(), {}, {}));
+      target->createTargetMachine(targetStr, cpu, featureString,
+    		  {}, //Options
+    		  {}));//Reloc::Model::Static));
 
   module->setDataLayout(machine->createDataLayout());
+  //  module->setDataLayout("e-p:64:64:64-i1:8:8-i8:8:64-i16:16:64-i32:32:64-i64:64:64-f32:32:64-f64:64:64-v64:64:64-v128:128:128-v256:256:256-v512:512:512-v1024:1024:1024-a0:0:64-n64");
+  module->setTargetTriple(targetStr);
 }
 // end of the mofified method from MLIR
 
@@ -276,6 +373,7 @@ Status Engine::RemoveUnusedFunctions() {
 
 // Optimise and compile the module.
 Status Engine::FinalizeModule() {
+	ARROW_LOG(INFO) << "Entry FinalizeModule";
   ARROW_RETURN_NOT_OK(RemoveUnusedFunctions());
   std::ofstream logfile;
   std::ofstream preopt_outfile;
@@ -284,11 +382,20 @@ Status Engine::FinalizeModule() {
   preopt_outfile << DumpIR();
   preopt_outfile.close();
 
+  /*
+   TTAProgram::Program*
+LLVMBackend::compile(
+    llvm::Module& module, llvm::Module* emulationModule,
+    TCETargetMachinePlugin& plugin, TTAMachine::Machine& target, int optLevel,
+    bool debug, InterPassData* ipData) {
+   */
+
   if (optimize_) {
+
     // misc passes to allow for inlining, vectorization, ..
     std::unique_ptr<llvm::legacy::PassManager> pass_manager(
         new llvm::legacy::PassManager());
-
+    ARROW_LOG(INFO) << "Adding passes";
     llvm::TargetIRAnalysis target_analysis =
         execution_engine_->getTargetMachine()->getTargetIRAnalysis();
     pass_manager->add(llvm::createTargetTransformInfoWrapperPass(target_analysis));
@@ -306,20 +413,23 @@ Status Engine::FinalizeModule() {
     llvm::PassManagerBuilder pass_builder;
     pass_builder.OptLevel = 3;
     pass_builder.populateModulePassManager(*pass_manager);
+    ARROW_LOG(INFO) << "Running passes";
     pass_manager->run(*module_);
   }
 
+  ARROW_LOG(INFO) << "Verifying module";
   ARROW_RETURN_IF(llvm::verifyModule(*module_, &llvm::errs()),
                   Status::CodeGenError("Module verification failed after optimizer"));
 
   // do the compilation
+  ARROW_LOG(INFO) << "Do the compilation (finalizeObject())";
   execution_engine_->finalizeObject();
   module_finalized_ = true;
   std::ofstream postopt_outfile;
   postopt_outfile.open ("LLVMIR_postopt_" + std::to_string(time));
   postopt_outfile << DumpIR();
   postopt_outfile.close();
-
+  ARROW_LOG(INFO) << "Exit FinalizeModule";
   return Status::OK();
 }
 
