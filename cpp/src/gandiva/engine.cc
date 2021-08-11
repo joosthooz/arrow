@@ -389,7 +389,7 @@ LLVMBackend::compile(
     TCETargetMachinePlugin& plugin, TTAMachine::Machine& target, int optLevel,
     bool debug, InterPassData* ipData) {
    */
-
+/*
   if (optimize_) {
 
     // misc passes to allow for inlining, vectorization, ..
@@ -416,6 +416,7 @@ LLVMBackend::compile(
     ARROW_LOG(INFO) << "Running passes";
     pass_manager->run(*module_);
   }
+  */
 
   ARROW_LOG(INFO) << "Verifying module";
   ARROW_RETURN_IF(llvm::verifyModule(*module_, &llvm::errs()),
