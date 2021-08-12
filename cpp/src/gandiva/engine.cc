@@ -251,7 +251,7 @@ static void SetDataLayout(llvm::Module* module) {
     		  {}));//Reloc::Model::Static));
 
 //  module->setDataLayout(machine->createDataLayout());
-  module->setDataLayout("e-p:64:64:64-i1:8:8-i8:8:64-i16:16:64-i32:32:64-i64:64:64-f32:32:64-f64:64:64-v64:64:64-v128:128:128-v256:256:256-v512:512:512-v1024:1024:1024-a0:0:64-n64");
+  module->setDataLayout("e-p:64:64:64-i1:8:64-i8:8:64-i16:16:64-i32:32:64-i64:64:64-f32:32:64-f64:64:64-v64:64:64-v128:128:128-v256:256:256-v512:512:512-v1024:1024:1024-v2048:2048:2048-v4096:4096:4096-a0:0:64-n64");
   module->setTargetTriple(targetStr);
 }
 // end of the mofified method from MLIR
@@ -384,8 +384,8 @@ Status Engine::FinalizeModule() {
       LLVMIR_EngineMake_outfile << "Engine:Make Continuing... after " << std::time(nullptr) - time;
       LLVMIR_EngineMake_outfile.close();
 
-      module_->setDataLayout("e-p:64:64:64-i1:8:8-i8:8:64-i16:16:64-i32:32:64-i64:64:64-f32:32:64-f64:64:64-v64:64:64-v128:128:128-v256:256:256-v512:512:512-v1024:1024:1024-a0:0:64-n64");
-      ARROW_LOG(INFO) << "Setting target Triple";
+      ARROW_LOG(INFO) << "Setting data layout and target Triple";
+      module_->setDataLayout("e-p:64:64:64-i1:8:64-i8:8:64-i16:16:64-i32:32:64-i64:64:64-f32:32:64-f64:64:64-v64:64:64-v128:128:128-v256:256:256-v512:512:512-v1024:1024:1024-v2048:2048:2048-v4096:4096:4096-a0:0:64-n64");
       module_->setTargetTriple(targetStr);
     // get registered target machine and set plugin.
       ARROW_LOG(INFO) << "Performing Target lookup";
@@ -435,6 +435,10 @@ Status Engine::FinalizeModule() {
             *module_, 0,
             *plugin, *target, 3, true,
             ipd);
+  if (prog) {
+  ARROW_LOG(INFO) << "compile() returned something!";
+
+  }
 
   // do the compilation
   ARROW_LOG(INFO) << "Do the compilation (finalizeObject())";
