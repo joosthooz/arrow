@@ -183,11 +183,18 @@ class SinkNode : public ExecNode {
   }
 
   void InputReceived(ExecNode* input, ExecBatch batch) override {
-    EVENT(span_, "InputReceived", {{"batch.length", batch.length}});
+    EVENT(span_, std::string(kind_name()) + ":" + "InputReceived", {
+      {"batch.length", batch.length},
+      {"batch.TotalBufferSize()", batch.TotalBufferSize()}
+    });
     util::tracing::Span span;
     START_COMPUTE_SPAN_WITH_PARENT(
-        span, span_, "InputReceived",
-        {{"node.label", label()}, {"batch.length", batch.length}});
+        span, span_, std::string(kind_name()) + ":" + "InputReceived",
+        {
+          {"node.label", label()},
+          {"batch.length", batch.length},
+          {"batch.TotalBufferSize()", batch.TotalBufferSize()}
+        });
 
     DCHECK_EQ(input, inputs_[0]);
 
@@ -213,7 +220,9 @@ class SinkNode : public ExecNode {
   }
 
   void InputFinished(ExecNode* input, int total_batches) override {
-    EVENT(span_, "InputFinished", {{"batches.length", total_batches}});
+    EVENT(span_, std::string(kind_name()) + ":" + "InputFinished", {
+      {"batches.length", total_batches}
+    });
     if (input_counter_.SetTotal(total_batches)) {
       Finish();
     }
@@ -331,11 +340,18 @@ class ConsumingSinkNode : public ExecNode, public BackpressureControl {
   }
 
   void InputReceived(ExecNode* input, ExecBatch batch) override {
-    EVENT(span_, "InputReceived", {{"batch.length", batch.length}});
+    EVENT(span_, std::string(kind_name()) + ":" + "InputReceived", {
+      {"batch.length", batch.length},
+      {"batch.TotalBufferSize()", batch.TotalBufferSize()}
+    });
     util::tracing::Span span;
     START_COMPUTE_SPAN_WITH_PARENT(
-        span, span_, "InputReceived",
-        {{"node.label", label()}, {"batch.length", batch.length}});
+        span, span_, std::string(kind_name()) + ":" + "InputReceived",
+        {
+          {"node.label", label()},
+          {"batch.length", batch.length},
+          {"batch.TotalBufferSize()", batch.TotalBufferSize()}
+        });
 
     DCHECK_EQ(input, inputs_[0]);
 
@@ -369,7 +385,7 @@ class ConsumingSinkNode : public ExecNode, public BackpressureControl {
   }
 
   void InputFinished(ExecNode* input, int total_batches) override {
-    EVENT(span_, "InputFinished", {{"batches.length", total_batches}});
+    EVENT(span_, std::string(kind_name()) + ":" + "InputFinished", {{"batches.length", total_batches}});
     if (input_counter_.SetTotal(total_batches)) {
       Finish(Status::OK());
     }
@@ -478,11 +494,18 @@ struct OrderBySinkNode final : public SinkNode {
   }
 
   void InputReceived(ExecNode* input, ExecBatch batch) override {
-    EVENT(span_, "InputReceived", {{"batch.length", batch.length}});
+    EVENT(span_, std::string(kind_name()) + ":" + "InputReceived", {
+      {"batch.length", batch.length},
+      {"batch.TotalBufferSize()", batch.TotalBufferSize()}
+    });
     util::tracing::Span span;
     START_COMPUTE_SPAN_WITH_PARENT(
-        span, span_, "InputReceived",
-        {{"node.label", label()}, {"batch.length", batch.length}});
+        span, span_, std::string(kind_name()) + ":" + "InputReceived",
+        {
+          {"node.label", label()},
+          {"batch.length", batch.length},
+          {"batch.TotalBufferSize()", batch.TotalBufferSize()}
+        });
 
     DCHECK_EQ(input, inputs_[0]);
 

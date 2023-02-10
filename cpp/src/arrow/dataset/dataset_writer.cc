@@ -81,6 +81,11 @@ class Throttle {
     }
   }
 
+  uint64_t CurrentValue() {
+    std::lock_guard<std::mutex> lg(mutex_);
+    return current_value_;
+  }
+
  private:
   Future<> backpressure_ = Future<>::MakeFinished();
   uint64_t max_value_;
@@ -171,6 +176,7 @@ class DatasetWriterFileQueue {
       }
     }
     DCHECK_GT(batches_to_write.size(), 0);
+//    printf("PopStagedBatch merging %d batches into 1\n", batches_to_write.size());
     ARROW_ASSIGN_OR_RAISE(std::shared_ptr<Table> table,
                           Table::FromRecordBatches(batches_to_write));
     return table->CombineChunksToBatch();
@@ -194,12 +200,15 @@ class DatasetWriterFileQueue {
   Status Push(std::shared_ptr<RecordBatch> batch) {
     uint64_t delta_staged = batch->num_rows();
     rows_currently_staged_ += delta_staged;
+    //printf("Pushing batch with %ld rows, rows_currently_staged %ld\n", delta_staged, rows_currently_staged_);
     staged_batches_.push_back(std::move(batch));
     while (!staged_batches_.empty() &&
            (writer_state_->StagingFull() ||
             rows_currently_staged_ >= options_.min_rows_per_group)) {
       ARROW_ASSIGN_OR_RAISE(int64_t rows_popped, PopAndDeliverStagedBatch());
       delta_staged -= rows_popped;
+      printf("Popped staged batch with %ld rows, delta_staged %ld, writer_state_->staged_rows_count %ld, rows_currently_staged_ %ld\n",
+             rows_popped, delta_staged, writer_state_->staged_rows_count.load(), rows_currently_staged_);
     }
     // Note, delta_staged may be negative if we were able to deliver some data
     writer_state_->staged_rows_count += delta_staged;
@@ -226,6 +235,8 @@ class DatasetWriterFileQueue {
           int64_t rows_to_release = batch->num_rows();
           Status status = self->writer_->Write(batch);
           self->writer_state_->rows_in_flight_throttle.Release(rows_to_release);
+//          printf("WriteNext: writing (Release) %ld rows, rows_in_flight now %ld\n",
+//                 rows_to_release, self->writer_state_->rows_in_flight_throttle.CurrentValue());
           return status;
         }));
   }
@@ -474,10 +485,10 @@ Status EnsureDestinationValid(const FileSystemDatasetWriteOptions& options) {
 }
 
 // Rule of thumb for the max rows to stage.  It will grow with max_rows_queued until
-// max_rows_queued starts to get too large and then it caps out at 8 million rows.
+// max_rows_queued starts to get too large and then it caps out at 2 million rows.
 // Feel free to replace with something more meaningful, this is just a random heuristic.
 uint64_t CalculateMaxRowsStaged(uint64_t max_rows_queued) {
-  return std::min(static_cast<uint64_t>(1 << 23), max_rows_queued / 4);
+      return std::min(static_cast<uint64_t>(1 << 21), max_rows_queued / 16);
 }
 
 }  // namespace
@@ -582,7 +593,10 @@ class DatasetWriter::DatasetWriterImpl {
 
       backpressure =
           writer_state_.rows_in_flight_throttle.Acquire(next_chunk->num_rows());
+//      printf("DoWriteRecordBatch: Pushing (Acquire) %ld rows, rows_in_flight_throttle %ld\n",
+//             next_chunk->num_rows(), writer_state_.rows_in_flight_throttle.CurrentValue());
       if (!backpressure.is_finished()) {
+        printf("DoWriteRecordBatch backpressuring\n");
         break;
       }
       if (will_open_file) {
@@ -600,6 +614,7 @@ class DatasetWriter::DatasetWriterImpl {
     }
 
     if (batch) {
+//      printf("DoWriteRecordBatch postponing due to backpressure\n");
       return backpressure.Then([this, batch, directory, prefix] {
         return DoWriteRecordBatch(batch, directory, prefix);
       });
