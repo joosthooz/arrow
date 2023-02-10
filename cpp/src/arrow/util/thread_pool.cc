@@ -18,8 +18,10 @@
 #include "arrow/util/thread_pool.h"
 
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <fstream>
 #include <list>
 #include <mutex>
 #include <string>
@@ -192,6 +194,7 @@ struct ThreadPool::State {
   // Trashcan for finished threads
   std::vector<std::thread> finished_workers_;
   std::deque<Task> pending_tasks_;
+  std::thread* monitor_;
 
   // Desired number of threads
   int desired_capacity_ = 0;
@@ -306,6 +309,8 @@ ThreadPool::ThreadPool()
     : sp_state_(std::make_shared<ThreadPool::State>()),
       state_(sp_state_.get()),
       shutdown_on_destroy_(true) {
+
+  state_->monitor_ = new std::thread(&ThreadPool::printStateLoop, std::ref(state_));
   // Eternal thread pools would produce false leak reports in the vector of
   // atfork handlers.
 #if !(defined(_WIN32) || defined(ADDRESS_SANITIZER) || defined(ARROW_VALGRIND))
@@ -376,6 +381,25 @@ int ThreadPool::GetNumTasks() {
   return state_->tasks_queued_or_running_;
 }
 
+void ThreadPool::printStateLoop(State* state) {
+  static int pools = 0;
+  int index = pools++;
+  int interval = 0;
+  std::ofstream threadstate_file;
+  threadstate_file.open("threadpool_state." + std::to_string(index) + ".csv");
+  threadstate_file << "tasks_queued_or_running, desired_capacity, actual_capacity, pending_tasks\n";
+  while (!(state->please_shutdown_ || state->quick_shutdown_)) {
+    threadstate_file << state->tasks_queued_or_running_ << ","
+                     << state->desired_capacity_ << ","
+                     << state->workers_.size() << ","
+                     << state->pending_tasks_.size()
+                     << "\n";
+    threadstate_file.flush();
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+  }
+  threadstate_file.close();
+}
+
 int ThreadPool::GetActualCapacity() {
   std::unique_lock<std::mutex> lock(state_->mutex_);
   return static_cast<int>(state_->workers_.size());
@@ -397,6 +421,7 @@ Status ThreadPool::Shutdown(bool wait) {
     state_->pending_tasks_.clear();
   }
   CollectFinishedWorkersUnlocked();
+  state_->monitor_->join();
   return Status::OK();
 }
 

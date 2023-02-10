@@ -451,6 +451,8 @@ class ARROW_EXPORT ThreadPool : public Executor {
 
   struct State;
 
+  static void printStateLoop(State* state);
+
  protected:
   FRIEND_TEST(TestThreadPool, SetCapacity);
   FRIEND_TEST(TestGlobalThreadPool, Capacity);
